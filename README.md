@@ -444,7 +444,7 @@ MCP 和 driver 启动时会读仓库根目录的 `.env`；**已经在环境里�
 | `STRONGHOLD_AUTH_USER` / `_PASSWORD` | 空 | 网站有登录门禁时使用（只在内存里换 cookie）；未设置时读游戏服务端的 `SP_AUTH_USER` / `SP_AUTH_PASSWORD` |
 | `STRONGHOLD_AUTH_COOKIE` | 空 | 直接给一个已拿到的会话 cookie |
 | `STRONGHOLD_LOCAL_BATTLE` | 空（driver 下默认 `1`） | `1` = 挂战斗运行器 |
-| `STRONGHOLD_SIM_ROOT` | 空 | 本地游戏安装（仓库根或 `server/`）—— 可选快路径 |
+| `STRONGHOLD_SIM_ROOT` | 空 | 本地游戏安装（仓库根或 `server/`）—— 可选快路径；没挂战斗运行器时，攻击范围规则也从这里加载 |
 | `STRONGHOLD_SIM_SPEC` | 空 | 直接指向 `spec.js` |
 | `STRONGHOLD_SIM_AUTODISCOVER` | 空 | `1` = 允许从工作目录向上找安装（默认关闭，避免静默掩盖远程来源） |
 | `STRONGHOLD_SIM_CACHE` | `~/.cache/stronghold-mcp` | 模拟缓存目录 |

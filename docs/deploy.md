@@ -80,6 +80,8 @@ location /mcp {
   `Environment=STRONGHOLD_MCP_TOOLS=full`（62 个）。一个部署固定用一种模式，工具定义才能保持逐字节稳定（见 [prompting.md](prompting.md)）。
 - **战斗运行器**：`STRONGHOLD_LOCAL_BATTLE=1` 时，这个服务替它的座位跑战斗模拟（模拟从游戏插件或本机安装取得，见 README「战斗模拟从哪来」）。
   未设置时，座位收到的 `b.start` 由其他客户端或服务端接管。
+- **攻击范围**：游戏和 MCP 在同一台服务器时，加 `Environment=STRONGHOLD_SIM_ROOT=/srv/apps/<game-dir>`。`range` 和 `range_tiles` 这样就用游戏自己的规则计算，这个设置本身不开启战斗运行器。
+  未设置且没挂战斗运行器时，它们来自棋子数据里的 `rangeGrid`，部分精英棋子会少一格。
 - **会话**：每个 HTTP 会话有自己的玩家连接。客户端发 `DELETE` 时关闭；`MCP_HTTP_IDLE_SECONDS`（默认 1800）秒内没有请求也会关闭。
   重启 MCP 服务只断开 MCP 会话，游戏房间由游戏服务保存。
 

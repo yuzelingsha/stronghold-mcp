@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 
 import { EventEmitter } from 'node:events';
 
+import { attachRangeRule } from '../mcp/battle/index.js';
 import { attachLocalBattleClient, battlePacing, contentAccepted, isTrainingRoom } from '../mcp/battle/local-sim.js';
 import { describeSearch, loadAttackRange, loadSimulation, resolveSpecPath } from '../mcp/battle/resolve-sim.js';
 
@@ -167,6 +168,21 @@ describe('the game\'s range rule', () => {
   it('is null when the tree has none, so ranges fall back to the records', async () => {
     const dir = fakeInstall();
     assert.equal(await loadAttackRange(join(dir, 'server', 'sim', 'spec.js')), null);
+  });
+
+  it('reaches a seat without a battle runner through a configured installation', async () => {
+    const dir = fakeInstall();
+    mkdirSync(join(dir, 'shared'), { recursive: true });
+    writeFileSync(join(dir, 'shared', 'loadoutRecord.js'), 'export const attackRangeGrid = (rec) => rec.marker;\n');
+    const client = { attackRangeGrid: null };
+    await attachRangeRule(client, { env: { STRONGHOLD_SIM_ROOT: dir }, startDir: tmpdir() });
+    assert.equal(client.attackRangeGrid({ marker: 'the game' }), 'the game');
+  });
+
+  it('stays with the records when no installation is configured', async () => {
+    const client = { attackRangeGrid: null };
+    await attachRangeRule(client, { env: {}, startDir: emptyDir() });
+    assert.equal(client.attackRangeGrid, null);
   });
 });
 

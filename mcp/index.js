@@ -39,9 +39,15 @@ loadDotEnv();
  * The simulation is fetched lazily — the first `b.start` waits for it — so an MCP server starts
  * answering tool calls immediately. `stronghold_state` reports the runner's progress under
  * `battleSimulation`.
+ *
+ * Without a runner, a configured installation (STRONGHOLD_SIM_ROOT) still supplies the range rule.
  */
 async function maybeAttachBattle(client) {
-  if (!truthy(process.env.STRONGHOLD_LOCAL_BATTLE)) return;
+  if (!truthy(process.env.STRONGHOLD_LOCAL_BATTLE)) {
+    const { attachRangeRule } = await import('./battle/index.js');
+    await attachRangeRule(client);
+    return;
+  }
   try {
     const { attachBattle } = await import('./battle/index.js');
     const info = await attachBattle(client, {

@@ -63,5 +63,17 @@ export async function attachBattle(client, options = {}) {
   return { enabled: true, mode: status.mode, source: 'remote', whenReady };
 }
 
+/**
+ * Give a seat without a battle runner the game's range rule. Only a configured installation can supply it:
+ * nothing is fetched here, and without one observations show the records' stated ranges.
+ *
+ * @param {import('../game-client.js').StrongholdClient} client
+ * @param {{ env?: Record<string,string|undefined>, startDir?: string }} [options]
+ */
+export async function attachRangeRule(client, options = {}) {
+  const specPath = resolveSpecPath(options.env || process.env, options.startDir || process.cwd());
+  if (specPath) client.attackRangeGrid = await loadAttackRange(specPath);
+}
+
 /** The paths the local resolver considered, for a caller that wants to explain a failure. */
 export { describeSearch as describeLocalSearch };
