@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 
 import { attachLocalBattleClient, battlePacing, contentAccepted, isTrainingRoom } from '../mcp/battle/local-sim.js';
-import { describeSearch, loadSimulation, resolveSpecPath } from '../mcp/battle/resolve-sim.js';
+import { describeSearch, loadAttackRange, loadSimulation, resolveSpecPath } from '../mcp/battle/resolve-sim.js';
 
 function emptyDir() {
   return mkdtempSync(join(tmpdir(), 'stronghold-test-'));
@@ -152,6 +152,32 @@ describe('local installation resolution', () => {
   it('rejects a spec.js whose sibling constants.js is missing', async () => {
     const dir = fakeInstall({ withConstants: false });
     await assert.rejects(() => loadSimulation({ STRONGHOLD_SIM_ROOT: dir }, tmpdir()), /sibling constants\.js/);
+  });
+});
+
+describe('the game\'s range rule', () => {
+  it('comes from the tree spec.js sits in', async () => {
+    const dir = fakeInstall();
+    mkdirSync(join(dir, 'shared'), { recursive: true });
+    writeFileSync(join(dir, 'shared', 'loadoutRecord.js'), 'export const attackRangeGrid = (rec) => rec.marker;\n');
+    const rule = await loadAttackRange(join(dir, 'server', 'sim', 'spec.js'));
+    assert.equal(rule({ marker: 'the game' }), 'the game');
+  });
+
+  it('is null when the tree has none, so ranges fall back to the records', async () => {
+    const dir = fakeInstall();
+    assert.equal(await loadAttackRange(join(dir, 'server', 'sim', 'spec.js')), null);
+  });
+});
+
+describe('leaving the room', () => {
+  it('ends the runner\'s status with the room it described', () => {
+    const client = new EventEmitter();
+    const { status } = attachLocalBattleClient(client, async () => ({ constants: { TICK: 1 / 30 } }), { env: {} });
+    Object.assign(status, { current: { round: 4 }, lastResult: { round: 4 }, report: { result: 'cleared' } });
+    client.emit('room.left');
+    assert.deepEqual([status.current, status.lastResult, status.report], [null, null, null]);
+    assert.equal(status.enabled, true, 'the runner stays attached for the next room');
   });
 });
 

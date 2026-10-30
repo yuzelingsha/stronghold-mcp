@@ -26,6 +26,20 @@ describe('observation log (rev / since)', () => {
     assert.equal(log(obs({ me: { funds: 5 } })).rev, 2);
   });
 
+  it('sends only the new messages, and keeps the volatile ages out of the revision', () => {
+    const log = createObservationLog();
+    const one = { id: 1, text: 'a' };
+    const two = { id: 2, text: 'b' };
+    const first = log(obs({ messages: [one] }));
+    const same = log(obs({ messages: [one], scouted_age_ms: 5, overtime_in_s: 3 }), { since: first.rev });
+    assert.equal(same.rev, first.rev);
+    assert.ok(same.unchanged.includes('messages'));
+    const next = log(obs({ messages: [one, two] }), { since: first.rev });
+    assert.deepEqual(next.messages, [two]);
+    const fromNothing = log(obs({ messages: [one, two] }), { since: log(obs()).rev });
+    assert.deepEqual(fromNothing.messages, [one, two]);
+  });
+
   it('sends only the changed sections, the removed keys and the new catalog entries', () => {
     const log = createObservationLog();
     const { rev } = log(obs());

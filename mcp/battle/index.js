@@ -15,10 +15,10 @@
  *      beyond this package.
  */
 import { attachLocalBattleClient, battlePacing } from './local-sim.js';
-import { describeSearch, loadSimulation, resolveSpecPath } from './resolve-sim.js';
+import { describeSearch, loadAttackRange, loadSimulation, resolveSpecPath } from './resolve-sim.js';
 
 export { attachLocalBattleClient, battlePacing, contentAccepted, isTrainingRoom } from './local-sim.js';
-export { loadSimulation, resolveSpecPath, describeSearch } from './resolve-sim.js';
+export { loadAttackRange, loadSimulation, resolveSpecPath, describeSearch } from './resolve-sim.js';
 
 /**
  * @param {import('../game-client.js').StrongholdClient} client
@@ -34,6 +34,7 @@ export async function attachBattle(client, options = {}) {
   if (localSpec) {
     // A game installation is right here: use it directly, no fetching at all.
     const sim = await loadSimulation(env, startDir);
+    client.attackRangeGrid = await loadAttackRange(sim.specPath);
     const { status } = attachLocalBattleClient(client, async () => ({ ...sim, source: `local:${sim.specPath}` }), { mode: options.mode, env });
     return { enabled: true, mode: status.mode, source: 'local', whenReady: async () => sim, specPath: sim.specPath };
   }
@@ -54,6 +55,7 @@ export async function attachBattle(client, options = {}) {
     });
     // Observation can reuse the same immutable records instead of fetching/parsing them again.
     client.simulationData = { origin, contentVersion, fingerprint: prepared.fingerprint, raw: prepared.raw };
+    client.attackRangeGrid = await loadAttackRange(prepared.specPath);
     return prepared;
   };
 

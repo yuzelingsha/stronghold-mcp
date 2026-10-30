@@ -5,6 +5,7 @@
  *              with the numbers of this server's config.json for the current mode
  *   reference  bond pages (thresholds, description, params, the operators whose 特质 stack it, the operators whose
  *              stats grow with it) and band pages, built from the data files at call time
+ *   emotes     the g.emote ids and what they mean
  *
  * The agent reads on demand. A call with `ids` returns those sections; a call without them returns a table of contents
  * (`pages`: id and title, `read: true` once this session fetched it): the pages for the current phase (`auto`: the
@@ -14,7 +15,7 @@
  * The chapter ids and what each covers also sit in the server's static instructions (instructions.js), so the
  * agent can ask for a chapter directly. It explains the game; the choices stay with the agent.
  */
-import { BOND_MECHANICS, CHAPTERS } from './guide-notes.js';
+import { BOND_MECHANICS, CHAPTERS, EMOTES } from './guide-notes.js';
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const obj = (value) => (isObject(value) ? value : {});
@@ -193,6 +194,17 @@ function bondOverview(data, disabled) {
   };
 }
 
+const EMOTES_TITLE = '表情';
+
+function emotesSection() {
+  return {
+    id: 'emotes',
+    title: EMOTES_TITLE,
+    text: ['g.emote { id } 发送表情，全部玩家都能看到，冷却 1 秒。收到的表情在 observe 的 messages 里，type 为 emote。'],
+    emotes: Object.entries(EMOTES).map(([id, label]) => ({ id, label })),
+  };
+}
+
 /** The bonds a seat can see during prep: on its pieces, in its shop, and already counted. */
 function visibleBonds(data, priv) {
   const ids = new Set();
@@ -362,6 +374,7 @@ export function guideSections(state, data, ids = []) {
     else if (kind === 'band') section = bandSection(data, key, disabled);
     else if (id === 'bonds.overview') section = bondOverview(data, disabled);
     else if (id === 'bonds.generic') section = genericSection(data, banned);
+    else if (id === 'emotes') section = emotesSection();
     if (section) sections.push(section);
     else unknown.push(id);
   }
@@ -394,6 +407,7 @@ export function guideIndex(state, data, topic = 'auto') {
     visibleBonds(data, priv).forEach(bond);
     add('bonds.generic', GENERIC_TITLE);
   }
+  if (topic === 'auto' && room.mode === 'coop') add('emotes', EMOTES_TITLE);
   return pages;
 }
 

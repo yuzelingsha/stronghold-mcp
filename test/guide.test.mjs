@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { bondScalers, bondStackers, createGuide, genericStackers, guideIndex, guideSections, traitClauses } from '../mcp/guide.js';
-import { CHAPTERS } from '../mcp/guide-notes.js';
+import { CHAPTERS, EMOTES } from '../mcp/guide-notes.js';
 
 const DATA = {
   bonds: {
@@ -45,6 +45,15 @@ function state(phase, priv = {}, pub = {}) {
 }
 
 describe('guide', () => {
+  it('lists the emotes in a co-op room and reads them by id', () => {
+    const coop = { ...state('PREP'), last: { ...state('PREP').last, 'room.state': { mode: 'coop' } } };
+    assert.ok(guideIndex(coop, DATA).some((page) => page.id === 'emotes'));
+    assert.equal(guideIndex(state('PREP'), DATA).some((page) => page.id === 'emotes'), false);
+    const [section] = guideSections(coop, DATA, ['emotes']).sections;
+    assert.equal(section.emotes.length, Object.keys(EMOTES).length);
+    assert.deepEqual(section.emotes[3], { id: 'autochess_battle_thanks', label: '谢谢' });
+  });
+
   it('derives each bond’s stackers from the operators’ traits', () => {
     assert.deepEqual(bondStackers(DATA, 'kazimierzShip').map((s) => [s.name, s.triggers]), [['甲', ['获得时']], ['丙', ['战斗开始时']], ['乙', ['部署时']]]);
     assert.deepEqual(bondStackers(DATA, 'kazimierzShip', new Set(['c_x'])).map((s) => s.name), ['甲', '乙']);

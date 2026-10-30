@@ -172,11 +172,17 @@ HTTP 上 `..` 在根目录处被夹住，所以看起来没问题；**磁盘上�
 - 把 `m.private.bonds[].bondId` 接到 `bonds.json`，补上阈值与是否算手牌
 - 把 `m.public.stageId` 接到 `stages.json`，取出可部署格与敌人路线
 - 把 `deadline - serverNow` 换算成 `seconds_left`
+- 把 `m.private.shop.rewardOffer.slots[].id` 接到 `chess.json` / `items.json`，与商店同样处理
+- 把棋子的攻击范围和朝向换算成覆盖格（`board[].range_tiles`），与棋盘上的高亮一致
+
+攻击范围的规则留在游戏代码里（`shared/loadoutRecord.js` 的 `attackRangeGrid`）：它取决于模组和特性，
+由 `mcp/battle/resolve-sim.js` 在运行时从模拟树加载。本仓库只调用它，不包含它。
 
 它**会**做的护栏（都是真实踩过的坑）：
 
 - `connected` / `frames_age_ms`：帧是「最后收到的」，断线或离开房间后它们只是残影
 - `battle.stale`：`battleSimulation` 是会话属性，一局结束后 `current` 仍描述着上一场
+- 离开房间时清空缓存帧：服务端不再给离开者发帧，旧帧不会被任何东西覆盖
 
 一个诚实的限制：**`gainedChess`（本回合获得过的干员数）不在 `m.private` 里** ——
 它只暴露给战斗效果脚本。叠层流派如果需要它，得自己数买入次数。
@@ -192,6 +198,12 @@ HTTP 上 `..` 在根目录处被夹住，所以看起来没问题；**磁盘上�
 不这样做的话，重连后 `snapshot()` 会继续返回上一局的帧，而 agent 无从分辨。
 
 丢弃是安全的，因为还成立的东西会在同一次握手里重新到达；不成立的东西本来就不该被看到。
+
+连接可能静默失效：路径已经断了，本地 `readyState` 仍是 `OPEN`，要到下一次写入才发现。服务端的 ping 只保护服务端，
+客户端要靠自己。所以 `game-client.js` 和浏览器一样每 4 秒发一次 `ping`，15 秒没有任何入站帧就主动断开，
+再按 0.5～10 秒退避带重连 token 发 `hello`。战斗中掉线同样恢复：服务端重发 `b.start` 和已经过去的时间，运行器按它追上进度。
+
+`stronghold_disconnect` 之后不再重连。关闭码 `4001`（同一身份在别处登录）也不重连，否则两边会互相顶掉。
 
 ---
 

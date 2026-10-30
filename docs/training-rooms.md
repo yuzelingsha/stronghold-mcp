@@ -26,6 +26,7 @@ AI 训练    room.create { mode, difficulty, train: true }  → 客户端秒算�
 - **普通房的 `room.state` 不出现 `train` 键**，与改动前逐字节相同。
 - **普通房走的是浏览器原本的 250ms 节奏**，客户端不做任何加速。
 - 不依赖「测试房」，因此没有测试房「每条输入写 journal」的开销。
+- 训练房是给单个 agent 用的。有两名以上真人时休整期带倒计时，`timerScale = 0` 会让它立刻结束，棋子来不及摆。
 
 ---
 

@@ -13,7 +13,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 /** The files an observation and the guide join against (about 3 MB together); browsers load the same files. */
-export const GAME_DATA_FILES = Object.freeze(['chess', 'items', 'bonds', 'enemies', 'stages', 'tokens', 'bands', 'garrisons', 'config']);
+export const GAME_DATA_FILES = Object.freeze(['chess', 'items', 'bonds', 'enemies', 'stages', 'tokens', 'bands', 'garrisons', 'bosses', 'config']);
 
 async function readLocal(dir, name) {
   const file = join(dir, `${name}.json`);

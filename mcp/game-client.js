@@ -5,6 +5,18 @@ const WS_OPEN = 1;
 const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_QUEUE = 200;
 const MAX_RECENT = 100;
+const MAX_MESSAGES = 50;
+/** The browser's heartbeat and reconnect pacing (public/js/net.js). */
+const PING_INTERVAL_MS = 4_000;
+const DEAD_AFTER_MS = 15_000;
+const BACKOFF = Object.freeze({ base: 500, factor: 2, max: 10_000, jitter: 0.2 });
+/** "Session replaced": the same token connected from elsewhere. Reconnecting would fight that session. */
+const CLOSE_REPLACED = 4001;
+
+function backoffDelay({ base, factor, max, jitter }, attempt) {
+  const raw = Math.min(max, base * factor ** attempt);
+  return Math.round(raw + raw * jitter * (Math.random() * 2 - 1));
+}
 
 function timeoutError(label, timeoutMs) {
   return new Error(`${label} timed out after ${timeoutMs} ms`);
@@ -46,6 +58,10 @@ export function deriveHttpUrl(wsUrl) {
  * messages and the server's normal state frames — so the server validates every message exactly as it
  * validates a browser. Nothing here is privileged and nothing bypasses server authority.
  *
+ * Like a browser it keeps its seat online. A heartbeat finds a socket that went silent without closing (a path can
+ * die with `readyState` still OPEN, and only the next write would tell), and a lost socket is reopened with the
+ * reconnect token until close(). `hello` is a full resync, so the seat and any battle it owns come back with it.
+ *
  * Configuration (constructor options win over the environment):
  *   STRONGHOLD_WS_URL        ws(s):// endpoint of the game server
  *   STRONGHOLD_HTTP_URL      HTTP origin used for the login cookie (derived from the WS URL)
@@ -77,8 +93,25 @@ export class StrongholdClient extends EventEmitter {
     this.lastError = null;
     /** When the most recent state frame arrived, or null when nothing has arrived since the last hello. */
     this.framesAt = null;
+    /** When the latest frame of each type arrived, since the last hello. */
+    this.frameAt = Object.create(null);
+    /** Toasts, ticker lines, emotes, closures: what a human reads as it passes, kept across resyncs. */
+    this.messages = [];
+    this.nextMessageId = 1;
+    this.pingIntervalMs = options.pingIntervalMs ?? PING_INTERVAL_MS;
+    this.deadAfterMs = options.deadAfterMs ?? DEAD_AFTER_MS;
+    this.backoff = options.backoff ?? BACKOFF;
+    /** True from connect() until close(): a socket lost in between is reopened. */
+    this.keepOnline = false;
+    this.reconnectAttempt = 0;
+    this.reconnectTimer = null;
+    this.heartbeatTimer = null;
+    /** When the oldest ping with no inbound frame since was sent. */
+    this.unansweredSince = null;
     /** Set by a battle adapter (see `mcp/battle/`) so `snapshot()` can report its status. */
     this.battleSimulation = null;
+    /** Set by a battle adapter: the game's own range rule, from the simulation tree it loaded. */
+    this.attackRangeGrid = null;
   }
 
   get connected() {
@@ -87,6 +120,7 @@ export class StrongholdClient extends EventEmitter {
 
   async connect(name = null) {
     if (name != null) this.name = String(name);
+    this.keepOnline = true;
     if (this.connected) return redactWelcome(this.welcome);
     if (this.connectPromise) return this.connectPromise;
 
@@ -138,6 +172,8 @@ export class StrongholdClient extends EventEmitter {
       this.playerId = welcome.playerId || null;
       this.sessionToken = welcome.token || this.sessionToken;
       this.last.welcome = welcome;
+      this.reconnectAttempt = 0;
+      this._startHeartbeat(ws);
       this.emit('welcome', welcome);
       return redactWelcome(welcome);
     } catch (error) {
@@ -242,6 +278,7 @@ export class StrongholdClient extends EventEmitter {
       return { sent: true, type: t };
     }
     const reply = await this._requestFrame(frame, { resolveTypes: new Set(['ok']), label: t, timeoutMs: options.timeoutMs });
+    if (LEAVES_ROOM.has(t)) this._clearRoomFrames();
     return { sent: true, type: t, reply };
   }
 
@@ -270,16 +307,19 @@ export class StrongholdClient extends EventEmitter {
         playerId: this.playerId,
         name: this.name,
         hasSessionToken: !!this.sessionToken,
+        reconnecting: this.keepOnline && !this.connected,
         lastError: this.lastError,
         // null = nothing has arrived since the last hello. A large age means the seat is quiet (a
         // finished match, a dropped socket), not that the match is paused.
         framesAgeMs: this.framesAt == null ? null : Date.now() - this.framesAt,
+        frameAgesMs: Object.fromEntries(Object.entries(this.frameAt).map(([type, at]) => [type, Date.now() - at])),
       },
       welcome: redactWelcome(this.welcome),
       last: {
         ...this.last,
         ...(this.last.welcome ? { welcome: redactWelcome(this.last.welcome) } : {}),
       },
+      messages: this.messages.slice(),
       queuedEvents: this.events.length,
       ...(this.battleSimulation ? { battleSimulation: this.battleSimulation } : {}),
     };
@@ -288,6 +328,10 @@ export class StrongholdClient extends EventEmitter {
   }
 
   async close() {
+    this.keepOnline = false;
+    clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this._stopHeartbeat();
     for (const entry of this.pending.values()) {
       clearTimeout(entry.timer);
       entry.reject(new Error('Stronghold connection closed'));
@@ -319,6 +363,69 @@ export class StrongholdClient extends EventEmitter {
     this.last = Object.create(null);
     this.events = [];
     this.framesAt = null;
+    this.frameAt = Object.create(null);
+  }
+
+  /**
+   * The seat is out of its room. The server sends a leaver nothing more, so the room's and match's last frames would
+   * stay on as if they were current, on a connection that still reads as healthy.
+   */
+  _clearRoomFrames() {
+    const { welcome } = this.last;
+    this._clearCachedFrames();
+    if (welcome) this.last.welcome = welcome;
+    this.emit('room.left');
+  }
+
+  _startHeartbeat(ws) {
+    this._stopHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      if (ws !== this.ws) return;
+      const now = Date.now();
+      if (this.unansweredSince != null && now - this.unansweredSince > this.deadAfterMs) {
+        // The close event this raises goes through _onClose like any other lost socket.
+        ws.terminate();
+        return;
+      }
+      try {
+        this._send({ t: 'ping', c: now });
+        this.unansweredSince ??= now;
+      } catch { /* closing: _onClose takes it from here */ }
+    }, this.pingIntervalMs);
+    this.heartbeatTimer.unref?.();
+  }
+
+  _stopHeartbeat() {
+    clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = null;
+    this.unansweredSince = null;
+  }
+
+  _scheduleReconnect() {
+    if (!this.keepOnline || this.reconnectTimer) return;
+    const delay = backoffDelay(this.backoff, this.reconnectAttempt);
+    this.reconnectAttempt += 1;
+    this.reconnectTimer = setTimeout(() => void this._reconnect(), delay);
+    this.reconnectTimer.unref?.();
+  }
+
+  async _reconnect() {
+    this.reconnectTimer = null;
+    if (!this.keepOnline) return;
+    try {
+      await this.connect();
+      this.lastError = null;
+      // close() may have arrived while the handshake ran.
+      if (!this.keepOnline) await this.close();
+    } catch (error) {
+      this.lastError = error instanceof Error ? error.message : String(error);
+      this._scheduleReconnect();
+    }
+  }
+
+  _rememberMessage(msg) {
+    this.messages.push({ id: this.nextMessageId++, at: Date.now(), round: this.last['m.public']?.round ?? null, frame: msg });
+    if (this.messages.length > MAX_MESSAGES) this.messages.shift();
   }
 
   _requestFrame(frame, { resolveTypes, label, timeoutMs = DEFAULT_TIMEOUT_MS }) {
@@ -345,17 +452,24 @@ export class StrongholdClient extends EventEmitter {
   }
 
   _onMessage(data, isBinary) {
+    this.unansweredSince = null;
     if (isBinary) return;
     let msg;
     try { msg = JSON.parse(data.toString()); } catch { return; }
     if (!msg || typeof msg !== 'object' || typeof msg.t !== 'string') return;
+    if (msg.t === 'pong' && msg.rid == null) return;
+    if (MESSAGE_FRAMES.has(msg.t)) this._rememberMessage(msg);
     if (msg.t === 'welcome') {
       this.welcome = msg;
       this.playerId = msg.playerId || this.playerId;
       this.sessionToken = msg.token || this.sessionToken;
       this.last.welcome = msg;
     }
+    if (msg.t === 'room.closed') this._clearRoomFrames();
+    // A scout ends when battle fields come up: the screen returns to the player's own field.
+    if (msg.t === 'm.public' && msg.fields?.length && this.last['m.field']?.prep) delete this.last['m.field'];
     this.last[msg.t] = msg;
+    this.frameAt[msg.t] = Date.now();
     if (STATE_FRAMES.has(msg.t)) this.framesAt = Date.now();
     this.emit(msg.t === 'error' ? 'protocol.error' : msg.t, msg);
 
@@ -378,6 +492,10 @@ export class StrongholdClient extends EventEmitter {
   }
 
   _pushEvent(msg) {
+    // A state frame replaces the one still queued: a reader wants the current state, not how it got there. The new
+    // frame goes to the back, so it keeps its order against the events around it.
+    const key = stateKey(msg);
+    if (key) this.events = this.events.filter((event) => stateKey(event) !== key);
     while (this.events.length >= MAX_QUEUE) this.events.shift();
     const waiterIndex = this.waiters.findIndex((waiter) => !waiter.wanted || waiter.wanted.has(msg.t));
     if (waiterIndex >= 0) {
@@ -395,6 +513,7 @@ export class StrongholdClient extends EventEmitter {
     if (ws !== this.ws) return;
     this.ws = null;
     this.playerId = null;
+    this._stopHeartbeat();
     const text = reason?.toString?.() || '';
     this.lastError = `WebSocket closed (${code}${text ? `: ${text}` : ''})`;
     for (const entry of this.pending.values()) {
@@ -403,6 +522,8 @@ export class StrongholdClient extends EventEmitter {
     }
     this.pending.clear();
     this.emit('socket.close', { code, reason: text });
+    if (code === CLOSE_REPLACED) this.keepOnline = false;
+    else this._scheduleReconnect();
   }
 }
 
@@ -411,6 +532,21 @@ export class StrongholdClient extends EventEmitter {
  * always time out. A browser sends them the same way.
  */
 export const FIRE_AND_FORGET = new Set(['b.progress', 'b.result', 'b.rehearsalResult']);
+
+/** Actions after which this seat has no room; the server treats both as a permanent departure. */
+const LEAVES_ROOM = new Set(['room.leave', 'g.leave']);
+
+/** What a human reads as it passes: observe keeps a short history of these. */
+const MESSAGE_FRAMES = new Set(['m.toast', 'm.ticker', 'm.emote', 'room.closed']);
+
+/** The frames where only the newest matters, per type or per type and field. */
+const STATE_PER_TYPE = new Set(['m.public', 'm.private', 'room.state', 'b.pool']);
+const STATE_PER_FIELD = new Set(['m.field', 'b.snap']);
+
+function stateKey(msg) {
+  if (STATE_PER_TYPE.has(msg.t)) return msg.t;
+  return STATE_PER_FIELD.has(msg.t) ? `${msg.t}:${msg.fieldId}` : null;
+}
 
 /** Frames that describe the world, as opposed to acknowledging a request. */
 const STATE_FRAMES = new Set([

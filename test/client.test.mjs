@@ -99,6 +99,50 @@ describe('StrongholdClient', () => {
     assert.equal(server.state.hellos[1].token, 'token-1', 'the reconnect token is replayed on the second hello');
   });
 
+  it('forgets the room when this seat leaves it', async () => {
+    for (const type of ['room.leave', 'g.leave']) {
+      const seat = new StrongholdClient({ wsUrl: server.url, name: 'Leaver' });
+      await seat.connect();
+      await settle();
+      assert.equal(seat.snapshot().last['m.public'].phase, 'PREP');
+      let left = 0;
+      seat.on('room.left', () => { left++; });
+
+      await seat.action(type);
+      const { last, queuedEvents, connection } = seat.snapshot();
+      assert.deepEqual(Object.keys(last), ['welcome'], 'a leaver hears nothing more, so old frames would read as current');
+      assert.equal(queuedEvents, 0);
+      assert.equal(connection.framesAgeMs, null);
+      assert.equal(connection.connected, true);
+      assert.equal(left, 1);
+      await seat.close();
+    }
+  });
+
+  it('keeps the room when the server refuses to let the seat leave', async () => {
+    const seat = new StrongholdClient({ wsUrl: server.url, name: 'Stayer' });
+    await seat.connect();
+    await settle();
+    server.state.failNext = 'room.leave';
+    await assert.rejects(() => seat.action('room.leave'), /refused by the fake server/);
+    assert.equal(seat.snapshot().last['m.public'].phase, 'PREP');
+    await seat.close();
+  });
+
+  it('forgets the room when the server closes it, and still reports why', async () => {
+    const seat = new StrongholdClient({ wsUrl: server.url, name: 'Kicked' });
+    await seat.connect();
+    await settle();
+    server.push({ t: 'room.closed', reason: 'kicked' });
+    const event = await seat.waitForEvent(['room.closed'], 2_000);
+    assert.equal(event.reason, 'kicked');
+    const { last } = seat.snapshot();
+    assert.equal(last['room.closed'].reason, 'kicked');
+    assert.equal(last['m.public'], undefined);
+    assert.equal(last['room.state'], undefined);
+    await seat.close();
+  });
+
   it('reconnects right after a disconnect without the old socket tearing the new one down', async () => {
     const seat = new StrongholdClient({ wsUrl: server.url, name: 'Again' });
     await seat.connect();
@@ -106,6 +150,125 @@ describe('StrongholdClient', () => {
     await seat.connect();
     await settle(100);
     assert.equal(seat.connected, true, 'the old socket finishing its close must not end the new session');
+    await seat.close();
+  });
+
+  describe('staying online', () => {
+    const quick = { pingIntervalMs: 10, deadAfterMs: 40, backoff: { base: 5, factor: 2, max: 20, jitter: 0 } };
+    const until = async (check, ms = 2_000) => {
+      const end = Date.now() + ms;
+      while (!check()) {
+        assert.ok(Date.now() < end, 'timed out');
+        await settle(5);
+      }
+    };
+
+    it('finds a silent socket with the heartbeat and resumes the seat with its token', async () => {
+      const seat = new StrongholdClient({ wsUrl: server.url, name: 'Quiet', ...quick });
+      await seat.connect();
+      const hellos = server.state.hellos.length;
+      const token = seat.sessionToken;
+      const closes = [];
+      seat.on('socket.close', (info) => closes.push(info.code));
+
+      server.goSilent();
+      assert.equal(seat.connected, true, 'nothing closed: only the heartbeat can notice');
+      await until(() => server.state.hellos.length > hellos);
+      await until(() => seat.connected);
+      assert.deepEqual(closes, [1006]);
+      assert.equal(server.state.hellos.at(hellos).token, token, 'the seat comes back with its reconnect token');
+      assert.equal(seat.snapshot().connection.reconnecting, false);
+      assert.equal(seat.snapshot().connection.lastError, null);
+      assert.equal(seat.snapshot().last['m.public'].round, server.state.round, 'hello resynced the match');
+      await seat.close();
+    });
+
+    it('stays connected while the server answers, and keeps pongs out of the frames', async () => {
+      const seat = new StrongholdClient({ wsUrl: server.url, name: 'Alive', ...quick });
+      await seat.connect();
+      const hellos = server.state.hellos.length;
+      await settle(120);
+      assert.equal(seat.connected, true);
+      assert.equal(server.state.hellos.length, hellos);
+      assert.equal(seat.snapshot().last.pong, undefined);
+      await seat.close();
+    });
+
+    it('reopens a socket the server closed, and reports it meanwhile', async () => {
+      const seat = new StrongholdClient({ wsUrl: server.url, name: 'Dropped', ...quick, backoff: { base: 80, factor: 1, max: 80, jitter: 0 } });
+      await seat.connect();
+      server.drop(1011);
+      await until(() => !seat.connected);
+      assert.equal(seat.snapshot().connection.reconnecting, true);
+      await until(() => seat.connected);
+      await seat.close();
+    });
+
+    it('leaves a replaced session alone', async () => {
+      const seat = new StrongholdClient({ wsUrl: server.url, name: 'Replaced', ...quick });
+      await seat.connect();
+      const hellos = server.state.hellos.length;
+      server.drop(4001);
+      await until(() => !seat.connected);
+      await settle(80);
+      assert.equal(server.state.hellos.length, hellos, 'another page holds the session now');
+      assert.equal(seat.snapshot().connection.reconnecting, false);
+    });
+
+    it('stops for good on close()', async () => {
+      const seat = new StrongholdClient({ wsUrl: server.url, name: 'Done', ...quick });
+      await seat.connect();
+      const hellos = server.state.hellos.length;
+      await seat.close();
+      await settle(80);
+      assert.equal(server.state.hellos.length, hellos);
+      assert.equal(seat.connected, false);
+    });
+  });
+
+  it('keeps only the newest state frame queued, in order among the events', async () => {
+    const seat = new StrongholdClient({ wsUrl: server.url, name: 'Queue' });
+    await seat.connect();
+    await settle();
+    seat.events = [];
+    server.push({ t: 'm.public', round: 1 });
+    server.push({ t: 'b.end', battleId: 'b1' });
+    server.push({ t: 'm.field', fieldId: 'a', n: 1 });
+    server.push({ t: 'm.field', fieldId: 'b', n: 2 });
+    server.push({ t: 'm.emote', playerId: 'p2', id: 'x' });
+    server.push({ t: 'm.emote', playerId: 'p2', id: 'y' });
+    server.push({ t: 'm.field', fieldId: 'a', n: 3 });
+    server.push({ t: 'm.public', round: 2 });
+    await settle();
+    assert.deepEqual(seat.events.map((e) => [e.t, e.round ?? e.battleId ?? e.n ?? e.id]), [
+      ['b.end', 'b1'], ['m.field', 2], ['m.emote', 'x'], ['m.emote', 'y'], ['m.field', 3], ['m.public', 2],
+    ]);
+    assert.equal((await seat.waitForEvent(['m.public'], 500)).round, 2, 'the current state, not the oldest');
+    await seat.close();
+  });
+
+  it('keeps what passed by across a resync and a closed room, and ends a scout with the prep', async () => {
+    const seat = new StrongholdClient({ wsUrl: server.url, name: 'Log' });
+    await seat.connect();
+    await settle();
+    server.push({ t: 'm.emote', playerId: 'p2', id: 'x' });
+    server.push({ t: 'm.field', fieldId: 'n:p2', prep: true, units: [] });
+    await settle();
+    assert.equal(seat.snapshot().connection.frameAgesMs['m.field'] >= 0, true);
+    server.push({ t: 'm.public', round: 3, fields: [] });
+    await settle();
+    assert.equal(seat.snapshot().last['m.field'].fieldId, 'n:p2');
+    server.push({ t: 'm.public', round: 3, fields: [{ fieldId: 'n:p1' }] });
+    await settle();
+    assert.equal(seat.snapshot().last['m.field'], undefined);
+
+    await seat.rename('Log2');
+    server.push({ t: 'room.closed', reason: 'kicked' });
+    await settle();
+    const { messages } = seat.snapshot();
+    assert.deepEqual(messages.map((m) => m.frame.t), ['m.emote', 'room.closed']);
+    assert.ok(messages[0].id < messages[1].id);
+    assert.equal(messages[0].round, server.state.round);
     await seat.close();
   });
 

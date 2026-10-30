@@ -19,6 +19,8 @@ export async function startFakeServer(options = {}) {
     failNext: options.failNext ?? null,
     /** Sent right after `welcome`, in addition to the state frames. */
     extraFrames: options.extraFrames ?? [],
+    /** While set, sockets open from now on still connect, and existing ones stop answering without closing. */
+    silent: new Set(),
   };
 
   const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
@@ -71,6 +73,11 @@ export async function startFakeServer(options = {}) {
     ws.on('message', (data) => {
       let msg;
       try { msg = JSON.parse(data.toString()); } catch { return; }
+      if (state.silent.has(ws)) return;
+      if (msg.t === 'ping') {
+        sendTo(ws, { t: 'pong', c: msg.c, s: Date.now() });
+        return;
+      }
       if (msg.t === 'hello') {
         state.hellos.push({ name: msg.name, token: msg.token ?? null });
         sendTo(ws, { t: 'welcome', playerId: 'p1', token: `token-${state.hellos.length}`, name: msg.name, rid: msg.rid });
@@ -97,6 +104,14 @@ export async function startFakeServer(options = {}) {
     /** Push a frame to every connected socket. */
     push(frame) {
       for (const ws of sockets) sendTo(ws, frame);
+    },
+    /** Stop answering on every open socket, keeping them open: a path that died without closing. */
+    goSilent() {
+      for (const ws of sockets) state.silent.add(ws);
+    },
+    /** Close every open socket with this code. */
+    drop(code) {
+      for (const ws of sockets) ws.close(code);
     },
     /** Advance the fake match's round and re-broadcast the state frames. */
     setRound(round) {

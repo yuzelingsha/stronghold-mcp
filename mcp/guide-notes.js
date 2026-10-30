@@ -13,6 +13,31 @@
  */
 
 /**
+ * The emotes with a meaning, by their g.emote id (data/emotes.json, shared/constants.js EMOTE_THEMES). The game has 36;
+ * the other 18 are numbered stickers.
+ */
+export const EMOTES = Object.freeze({
+  autochess_battle_happy: '开心',
+  autochess_battle_scared: '害怕',
+  autochess_battle_sorry: '对不起',
+  autochess_battle_thanks: '谢谢',
+  autochess_battle_thinking: '思考',
+  autochess_battle_nice_cooperate: '合作愉快',
+  autochess_battle_slug_nice_work: '合作愉快！',
+  autochess_battle_slug_thanks: '谢谢！',
+  autochess_battle_slug_sorry: '对不起！',
+  autochess_battle_slug_bye: '再见！',
+  autochess_battle_slug_distrust: '？？？',
+  autochess_battle_slug_very_soon: '很快就好！',
+  autochess_battle_noproblem: '没问题！',
+  autochess_battle_respect: '敬礼！',
+  autochess_battle_call: '欢呼！',
+  autochess_battle_playingcool: '酷！',
+  autochess_battle_sad: '伤心',
+  autochess_battle_dying: '快死了',
+});
+
+/**
  * Chapters, in reading order. `summary` says what a chapter covers and goes into the server's static instructions;
  * `lines(c)` receives the context built by guide.js (`tutorialContext`).
  */
@@ -21,10 +46,11 @@ export const CHAPTERS = Object.freeze([
     id: 'tutorial.flow',
     title: '对局流程',
     summary: '回合数、每回合的阶段、机变回合、联防（联机）、作战时限',
-    source: 'shared/constants.js PHASE, server/match/match/prep.js:170-180, server/sim/battle/lifecycle.js:161-177, data/config.json modes',
+    source: 'shared/constants.js PHASE, server/match/match/prep.js:170-180, server/match/match/setupVote.js, server/sim/battle/lifecycle.js:161-177, data/config.json modes',
     lines: (c) => [
       `一局共 ${c.lastRound} 回合。第 ${c.bossRound} 回合是最终攻势（对敌方领袖作战）。${c.hidden ? `达成条件时，第 ${c.hiddenRound} 回合进入隐秘核心（条件见“生命值与漏怪”）。` : ''}`,
       '开局：确认本局信息（g.infoReady）→ 选择策略（g.band，见 band_draft）。',
+      ...(c.solo ? [] : ['确认本局信息时，玩家可以发起重随（room.rerollSetup）：observe 出现 reroll_vote，倒计时暂停，所有真人玩家同意后重抽本局设置，一人反对就取消。awaiting_me 为 true 时用 g.rerollVote { voteId, agree } 表态。']),
       `每回合：回合开始 → 休整期（买卖、摆放、装备，完成后 g.ready）→ 作战 → 结算。${c.spRounds.length ? `第 ${c.spRounds.join('、')} 回合在休整期之前有机变阶段（sp_draft，g.choice { idx } 选卡）。` : ''}`,
       ...(c.solo ? [] : ['联机时，作战后有队友漏怪、且有队友完美作战，就进入联防阶段：完美作战的队友（至多' + c.maxHelpers + '名）替漏怪的玩家迎击逃脱的敌人。']),
       `作战时限（秒）：${c.timeLimits}。时限到时场上剩余的敌人计为漏怪。`,

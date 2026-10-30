@@ -55,7 +55,7 @@ export function registerTools(server, client, { env = process.env, gameData = ga
   const observeLog = createObservationLog();
   server.registerTool('stronghold_observe', {
     title: 'Observe the match',
-    description: 'Read the match. Check connected and has_frames first. detail="compact" (default) puts static stats once per kind:id in catalog and leaves out default values (an absent flag is false); "full" joins stats onto every instance. Pass the rev of your last observe as since to receive only what changed: sections listed in unchanged are as in that response, removed keys are gone, catalog holds only new entries. resync:true means since was unknown and this is the whole observation. includeField/includeReport=false omit those sections.',
+    description: 'Read the match. Check connected and has_frames first. detail="compact" (default) puts static stats once per kind:id in catalog and leaves out default values (an absent flag is false); "full" joins stats onto every instance. Pass the rev of your last observe as since to receive only what changed: sections listed in unchanged are as in that response, removed keys are gone, catalog and messages hold only new entries. resync:true means since was unknown and this is the whole observation. includeField/includeReport=false omit those sections.',
     inputSchema: z.object({
       detail: z.enum(['full', 'compact']).optional(),
       since: z.number().int().min(1).optional(),
@@ -67,7 +67,7 @@ export function registerTools(server, client, { env = process.env, gameData = ga
     let data = {};
     let dataError = null;
     try { data = await gameData(); } catch (error) { dataError = error instanceof Error ? error.message : String(error); }
-    const obs = observation(state, data, { env, detail, includeField, includeReport });
+    const obs = observation(state, data, { env, detail, includeField, includeReport, attackRange: client.attackRangeGrid });
     // Without the data files the frames still render; only the joined names and stats are blank.
     if (dataError) obs.data_error = dataError;
     return observeLog(obs, { signature: JSON.stringify([detail, includeField !== false, includeReport !== false]), since: since ?? null });
@@ -97,7 +97,7 @@ export function registerTools(server, client, { env = process.env, gameData = ga
 
   server.registerTool('stronghold_wait_event', {
     title: 'Wait for Stronghold event',
-    description: 'Wait for the next live server event. Use this after an action to observe room/match/battle updates.',
+    description: 'Wait for the next live server event. Use this after an action to observe room/match/battle updates. The queue holds the newest frame of each kind of state, and every event in order.',
     inputSchema: z.object({ types: z.array(z.string()).optional(), timeoutMs: z.number().int().min(100).max(120000).optional() }),
   }, async ({ types, timeoutMs }) => runSafe(() => client.waitForEvent(types || null, timeoutMs || 15_000)));
 

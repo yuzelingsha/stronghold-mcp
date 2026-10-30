@@ -97,6 +97,9 @@ Python 侧如果要一个顺手的简写，在 `python/stronghold_agent/actions.
 `welcome` 帧里带一个 `token`。`game-client.js` 把它存在内存里，下次 `hello` 时带上，
 因此断线重连会**回到同一个座位**，而不是新开一个。
 
+`game-client.js` 自动做这件事，节奏与浏览器相同（`public/js/net.js`）：每 4 秒发一次 `ping`，15 秒没有任何入站帧就主动断开，
+再按 0.5～10 秒退避重连。`stronghold_disconnect` 之后和关闭码 `4001`（同一身份在别处登录）不重连。
+
 这个 token 等价于会话凭据：
 
 - `snapshot()` 返回的 `welcome` 已经被**剥掉** `token` 字段（`redactWelcome`），

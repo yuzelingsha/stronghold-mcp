@@ -11,7 +11,8 @@
  *   - scalars (phase, round, seconds_left, …) are always sent;
  *   - an object or array section whose content equals the one in `since` is left out and named in `unchanged`;
  *   - a key present in `since` and absent now (a closed modal, the end of the draft) is named in `removed`;
- *   - `catalog` carries only the entries `since` did not have.
+ *   - `catalog` carries only the entries `since` did not have;
+ *   - `messages` carries only the lines newer than `since`: it only ever grows at its end.
  *
  * Recovery is built in: a `since` this log no longer holds (too old, from before a restart, or taken with
  * other options) answers with the whole observation and `resync: true`. A caller that lost track of its
@@ -19,7 +20,7 @@
  */
 
 /** Scalars that change on every call without anything happening; they do not make a new revision. */
-const VOLATILE = new Set(['frames_age_ms', 'seconds_left']);
+const VOLATILE = new Set(['frames_age_ms', 'seconds_left', 'scouted_age_ms', 'overtime_in_s']);
 
 const isSection = (value) => value !== null && typeof value === 'object';
 
@@ -69,6 +70,7 @@ export function createObservationLog({ limit = 16 } = {}) {
     for (const [key, value] of Object.entries(obs)) {
       if (key === 'catalog') continue;
       if (isSection(value) && base.sections.get(key) === sections.get(key)) unchanged.push(key);
+      else if (key === 'messages') out[key] = value.filter((message) => message.id > Math.max(0, ...(base.obs.messages ?? []).map((m) => m.id)));
       else out[key] = value;
     }
     if (obs.catalog) {

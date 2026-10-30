@@ -259,16 +259,21 @@ with Agent.connect(name="Agent") as game:
 
 | 字段 | 含义 |
 |---|---|
-| `connected` / `has_frames` / `frames_age_ms` | **先看这三个。** 帧是「最后收到的」，断线或离开房间后它们只是残影 |
+| `connected` / `has_frames` / `frames_age_ms` | **先看这三个。** 帧是「最后收到的」，断线后它们只是残影（离开房间时会清空） |
 | `phase` / `round` / `seconds_left` | 阶段、回合、距截止还剩几秒 |
-| `stage` / `combat_mode` / `room` | 关卡；战斗由客户端还是服务端模拟；房间号、模式、难度、**是否训练房** |
+| `stage` / `combat_mode` / `room` | 关卡；战斗由客户端还是服务端模拟；房间号、模式、难度、**是否训练房**、房主与全部座位（大厅里就靠它） |
 | `me` | 资金、商店等级与升级价、刷新价、部署数/上限、就绪状态、累计统计 |
-| `shop` | 每个卡槽，已与 `chess.json` / `items.json` 连接（名称、价格、职业、面板、所属盟约） |
-| `reward_offer` / `personal_choice` | 晋升奖励（保留到领取，待领取时也能就绪）与个人抉择（处理后才能就绪） |
-| `hand` / `temp` / `board` | 每个棋子的完整信息 + 所在格与朝向；`board_tiles` 是 `"row,col" → uid` |
+| `shop` | 每个卡槽，已与 `chess.json` / `items.json` 连接（名称、价格、职业、面板、所属盟约、精锐、攻击范围、技能） |
+| `reward_offer` / `personal_choice` | 晋升奖励（卡牌已连接数据；保留到领取，待领取时也能就绪）与个人抉择（处理后才能就绪） |
+| `hand` / `temp` / `board` | 每个棋子的完整信息 + 所在格与朝向；`board[].range_tiles` 是攻击覆盖格；`board_tiles` 是 `"row,col" → uid` |
 | `bonds` | 每个盟约的**实时层数** `layers`、计数、激活档位、阈值、是否本局禁用 |
 | `effects` / `next_enemies` | 计数器与悬赏；下一波每个出怪动作（时间、数量、精英、飞行、boss） |
-| `players` | 每个座位（名字、bot、血量、等级、场上人数、就绪状态、主要盟约）—— 联机用 |
+| `players` | 每个座位（`playerId`、名字、bot、在线状态、血量、等级、场上人数、就绪状态、主要盟约）—— 联机用 |
+| `setup` | 本局抽到的内容：回合数、敌人派系、禁用盟约与干员、Boss |
+| `scouted` | 备战时最近一次侦察（`g.watch`）看到的场地 |
+| `fields` / `unite` / `boss_hp` / `team_lp` | 战场进度、联防、最终攻势的血池 |
+| `messages` | 最近的提示、播报和表情，传 `since` 时只给新的 |
+| `result` | 结算画面，只在 `RESULT` 阶段出现 |
 | `field` | 可部署格（近战 / 仅远程）、敌人行进路线、渲染出的地图切片 |
 | `battle` | 本地战斗模拟器的状态；`stale` 表示它描述的是上一场 |
 | `data_error` | 只在数据文件取不到时出现：帧照常渲染，只有连接来的名字与面板为空 |

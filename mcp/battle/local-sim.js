@@ -283,6 +283,12 @@ export function attachLocalBattleClient(client, getSim, options = {}) {
     for (const entry of battles.values()) stop(entry);
   });
 
+  // The runner's status outlives a battle by design; it ends with the room it described.
+  client.on('room.left', () => {
+    for (const entry of battles.values()) stop(entry);
+    Object.assign(status, { current: null, lastResult: null, report: null, declined: null });
+  });
+
   // `status` is what goes into a snapshot, so it must stay plain JSON — the awaitable handle is
   // returned beside it instead of hanging off it.
   return { status, whenReady: () => sim() };

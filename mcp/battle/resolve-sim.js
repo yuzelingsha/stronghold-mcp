@@ -71,6 +71,25 @@ export function describeSearch(env = process.env, startDir = process.cwd()) {
 }
 
 /**
+ * The game's attack-range rule (`shared/loadoutRecord.js` attackRangeGrid), from the tree `spec.js` sits in.
+ *
+ * Which grid a unit fights with depends on its module, passive skills and 特性, so the rule stays the game's own and
+ * is loaded at run time. Null when the tree has no such file: observations then show the records' stated ranges.
+ *
+ * @param {string} specPath an absolute path to `server/sim/spec.js`
+ * @returns {Promise<Function|null>}
+ */
+export async function loadAttackRange(specPath) {
+  const file = join(dirname(specPath), '..', '..', 'shared', 'loadoutRecord.js');
+  try {
+    const { attackRangeGrid } = await import(pathToFileURL(file).href);
+    return typeof attackRangeGrid === 'function' ? attackRangeGrid : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Import the game's simulation modules from disk.
  * @returns {Promise<{ spec: object, constants: object, specPath: string }>}
  */
