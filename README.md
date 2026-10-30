@@ -2,6 +2,9 @@
 
 **通过 MCP 让 AI agent 像玩家一样玩《明日方舟：卫戍协议·盟约》。** · [English](README.en.md)
 
+基于 **[卫戍协议：盟约 · Stronghold Protocol: Alliance](https://github.com/sganggs/Stronghold-Protocol)**（sganggs/Stronghold-Protocol，GPL-3.0-or-later）——
+「卫戍协议：盟约」的非官方同人联机网页复刻。本项目为它的服务器提供 AI agent 接入，适配 0.3.x 版本。
+
 两个可独立安装的部分：
 
 | 装在哪 | 装什么 | 谁装 |
@@ -35,6 +38,7 @@
 
 ## 目录
 
+- [基于的项目](#基于的项目)
 - [为什么需要一个插件](#为什么需要一个插件)
 - [30 秒上手](#30-秒上手)
 - [游戏侧：装插件](#游戏侧装插件)
@@ -52,6 +56,25 @@
 文档：[架构与边界](docs/architecture.md) · [observation 字段](docs/observation.md) · [提示词与缓存](docs/prompting.md) ·
 [协议与动作表](docs/protocol.md) · [插件安装](docs/plugin-install.md) · [部署 MCP 服务](docs/deploy.md) ·
 [训练房](docs/training-rooms.md) · [路线图](ROADMAP.md)
+
+---
+
+## 基于的项目
+
+| | |
+|---|---|
+| 项目 | [卫戍协议：盟约 · Stronghold Protocol: Alliance](https://github.com/sganggs/Stronghold-Protocol) |
+| 作者 | Stronghold-Protocol contributors（仓库 `sganggs/Stronghold-Protocol`） |
+| 适配版本 | 0.3.x（插件清单 `"app": ">=0.3.0 <0.4.0"`，在 0.3.1 上开发与验证） |
+| 许可 | 代码 GPL-3.0-or-later；《明日方舟》相关素材与数据归原权利人，见上游 [NOTICE.md](https://github.com/sganggs/Stronghold-Protocol/blob/master/NOTICE.md) |
+
+本项目用到的上游部分：
+
+- **客户端协议**：MCP 发出的每条消息都是上游浏览器客户端的协议消息，由上游服务器校验。
+- **插件系统**：`plugin/` 是装进上游插件系统（`trusted` 类）的插件，通过它的 `api.http.route` 挂只读接口。
+- **战斗模拟与数据**：MCP 在运行时从你自己部署的上游服务器取得 `server/sim/`、`shared/` 和 `data/*.json`，
+  按上游浏览器的方式加载执行。这些代码和数据保持上游的许可与声明。
+- **规则核对**：`stronghold_guide` 教程里标注的源码位置（`server/…`、`data/config.json`）都指上游 0.3.1 的文件。
 
 ---
 
@@ -545,10 +568,11 @@ stronghold-mcp/
 
 ## 许可与声明
 
-MIT（见 [LICENSE](LICENSE)）。
+本仓库的代码以 MIT 发布（见 [LICENSE](LICENSE)）。
 
-本项目是**非商业同人作品**的工具链，与鹰角网络（Hypergryph）无关。
-《明日方舟》及相关名称、角色、素材的一切权利归其各自所有者所有。
-本项目只做协议适配、插件接口与观察渲染，**不包含任何游戏素材、数据文件或服务端代码** ——
-模拟源码与数据都是运行时从使用者自己部署的服务器取得的。
-请自行确认你的使用方式符合目标服务器的规则与当地法律。
+本项目是非官方同人作品 [卫戍协议：盟约 · Stronghold Protocol: Alliance](https://github.com/sganggs/Stronghold-Protocol) 的配套工具，与鹰角网络（Hypergryph）、
+Yostar 及其关联方无关。《明日方舟》及相关名称、角色、素材与数据的一切权利归原权利人所有。
+
+本仓库只做协议适配、插件接口与观察渲染，**不包含任何游戏素材、数据文件或上游服务端代码**。战斗模拟源码与数据都在运行时
+从使用者自己部署的服务器取得，继续适用上游的 GPL-3.0-or-later 许可与 [NOTICE.md](https://github.com/sganggs/Stronghold-Protocol/blob/master/NOTICE.md)：
+仅供学习交流与个人非商业使用。请同时遵守目标服务器的规则与当地法律。

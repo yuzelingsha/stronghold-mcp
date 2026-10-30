@@ -3,8 +3,8 @@
  *
  * Every chapter is a function of the match context guide.js builds from the data files the browser loads
  * (config.json for the current mode, chess, bonds, bands), so its numbers are this server's numbers. The rules
- * themselves were checked against the game source — the code, not its config comments; where the two disagree the
- * code wins — and each chapter names where.
+ * themselves were checked against the game source (sganggs/Stronghold-Protocol 0.3.1) — the code, not its config
+ * comments; where the two disagree the code wins — and each chapter names where.
  *
  * Writing rules for anything an agent reads here:
  *   - state what exists in the game; name only things the data contains;

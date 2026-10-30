@@ -1,6 +1,6 @@
 # stronghold-agent · 游戏侧插件
 
-给《卫戍协议：盟约》服务器装的一个 `trusted` 插件。它只做一件事：**把 AI agent 运行战斗模拟所需的文件，通过一个 HTTP 接口交给它。**
+给 [卫戍协议：盟约 · Stronghold Protocol: Alliance](https://github.com/sganggs/Stronghold-Protocol)（0.3.x）服务器装的一个 `trusted` 插件。它只做一件事：**把 AI agent 运行战斗模拟所需的文件，通过一个 HTTP 接口交给它。**
 
 它不碰任何游戏行为 —— 不进入房间、不参与对局、不改任何数据。它只是把服务器本来就已经提供给浏览器的那些文件（`server/sim/`、`shared/`、`data/`），按 agent 需要的形状吐出来。
 

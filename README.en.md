@@ -2,6 +2,10 @@
 
 **An MCP server that lets AI agents play *Arknights: Stronghold Protocol* the way a player does.** · [中文](README.md)
 
+Built on **[Stronghold Protocol: Alliance](https://github.com/sganggs/Stronghold-Protocol)** (sganggs/Stronghold-Protocol, GPL-3.0-or-later), an unofficial
+fan-made multiplayer web remake of the *Arknights* "Stronghold Protocol: Alliance" mode. This project gives AI agents
+access to its server; it targets 0.3.x.
+
 Two parts, installed independently:
 
 | Where | What | Who installs it |
@@ -14,6 +18,18 @@ when to level up and when to ready are all the agent's call. The code here only 
 
 The bridge has no privileges: every message it sends is an ordinary client message, validated by the server exactly as a
 browser's. The plugin only reads files the server already serves to browsers.
+
+### Upstream
+
+| | |
+|---|---|
+| Project | [Stronghold Protocol: Alliance](https://github.com/sganggs/Stronghold-Protocol) by the Stronghold-Protocol contributors |
+| Supported versions | 0.3.x (plugin manifest `"app": ">=0.3.0 <0.4.0"`; developed and verified on 0.3.1) |
+| License | code GPL-3.0-or-later; *Arknights* assets and data belong to their owners, see the upstream [NOTICE.md](https://github.com/sganggs/Stronghold-Protocol/blob/master/NOTICE.md) |
+
+What this project uses from upstream: its client protocol (every message the MCP sends is a browser protocol message),
+its plugin system (`plugin/` is a `trusted` plugin), and, at runtime, the battle simulation and data files fetched from
+the server you deploy. The source locations cited by the `stronghold_guide` tutorial refer to upstream 0.3.1.
 
 The detailed documentation is in Chinese ([README.md](README.md) and [docs/](docs/)); this page is the overview.
 
@@ -97,8 +113,10 @@ step each battle to the end at once.
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+The code in this repository is MIT licensed, see [LICENSE](LICENSE).
 
-This is tooling for a non-commercial fan work and is not affiliated with Hypergryph. *Arknights* and all related names,
-characters and assets belong to their respective owners. This repository contains no game assets, data files or server
-code: the simulation and data are fetched at runtime from the server you deploy yourself.
+This is companion tooling for the unofficial fan work [Stronghold Protocol: Alliance](https://github.com/sganggs/Stronghold-Protocol) and is not affiliated with
+Hypergryph, Yostar or their affiliates. *Arknights* and all related names, characters, assets and data belong to their
+respective owners. This repository contains no game assets, data files or upstream server code: the simulation and data
+are fetched at runtime from the server you deploy yourself and remain under upstream's GPL-3.0-or-later license and
+[NOTICE.md](https://github.com/sganggs/Stronghold-Protocol/blob/master/NOTICE.md) — for learning and personal non-commercial use only.
