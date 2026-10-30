@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stronghold-agent"
+version = "0.1.0"
+description = "Let an AI agent play Stronghold Protocol: observe the match, act in it."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "reisa" }]
+keywords = ["arknights", "stronghold-protocol", "ai-agent", "mcp", "auto-chess"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+]
+# Standard library only — the transport is a plain TCP socket to the local driver.
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.urls]
+Homepage = "https://github.com/yuzelingsha/stronghold-mcp"
+Issues = "https://github.com/yuzelingsha/stronghold-mcp/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["stronghold_agent*"]

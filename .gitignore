@@ -1,0 +1,21 @@
+# dependencies
+node_modules/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+dist/
+build/
+
+# local configuration and secrets — never commit these
+.env
+*.local.env
+auth.env
+
+# runtime output
+*.log
+logs/

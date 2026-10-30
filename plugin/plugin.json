@@ -1,0 +1,16 @@
+{
+  "$schema": "../../../schemas/plugin.schema.json",
+  "manifest": 2,
+  "id": "stronghold-agent",
+  "name": "AI 接入 · AI access",
+  "description": "为 AI agent 提供它运行战斗模拟所需的接口：模拟源码、游戏数据与内容指纹。只读，不改动任何游戏行为。",
+  "version": "0.1.0",
+  "app": ">=0.3.0 <0.4.0",
+  "api": 1,
+  "class": "trusted",
+  "scope": ["server"],
+  "authors": ["stronghold-agent"],
+  "license": "MIT",
+  "permissions": ["trusted.server"],
+  "entry": { "server": "server.js" }
+}

@@ -1,0 +1,59 @@
+{
+  "name": "stronghold-mcp",
+  "version": "0.1.0",
+  "description": "MCP server that lets AI agents play Stronghold Protocol like a player, plus a read-only game-server plugin that hands over the battle simulation.",
+  "type": "module",
+  "license": "MIT",
+  "author": "reisa",
+  "homepage": "https://github.com/yuzelingsha/stronghold-mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yuzelingsha/stronghold-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yuzelingsha/stronghold-mcp/issues"
+  },
+  "keywords": [
+    "arknights",
+    "stronghold-protocol",
+    "ai-agent",
+    "mcp",
+    "model-context-protocol",
+    "auto-chess"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "stronghold-mcp": "mcp/index.js",
+    "stronghold-driver": "driver/drive-daemon.mjs"
+  },
+  "exports": {
+    ".": "./mcp/index.js",
+    "./client": "./mcp/game-client.js",
+    "./protocol": "./mcp/protocol.js",
+    "./battle": "./mcp/battle/index.js",
+    "./sim": "./mcp/sim/index.js"
+  },
+  "files": [
+    "mcp/",
+    "driver/",
+    "plugin/",
+    "docs/",
+    "README.md",
+    "README.en.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "start": "node mcp/index.js",
+    "driver": "node driver/drive-daemon.mjs",
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check mcp/index.js && node --check mcp/tools.js && node --check mcp/env.js && node --check mcp/observation.js && node --check mcp/observe-log.js && node --check mcp/guide.js && node --check mcp/guide-notes.js && node --check mcp/instructions.js && node --check mcp/server.js && node --check mcp/http-sessions.js && node --check mcp/gamedata.js && node --check mcp/game-client.js && node --check mcp/protocol.js && node --check mcp/battle/index.js && node --check mcp/battle/local-sim.js && node --check mcp/battle/resolve-sim.js && node --check mcp/sim/index.js && node --check mcp/sim/plugin.js && node --check mcp/sim/crawl.js && node --check mcp/sim/store.js && node --check plugin/server.js && node --check driver/drive-daemon.mjs && node --check driver/config.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/node": "2.1.2",
+    "@modelcontextprotocol/server": "2.4.0",
+    "ws": "^8.18.0",
+    "zod": "^4.2.0"
+  }
+}
