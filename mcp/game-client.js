@@ -95,6 +95,8 @@ export class StrongholdClient extends EventEmitter {
     this.framesAt = null;
     /** When the latest frame of each type arrived, since the last hello. */
     this.frameAt = Object.create(null);
+    /** This seat's newest emote of the match, { at, round }: the messages ring can drop it long before a round ends. */
+    this.lastEmote = null;
     /** Toasts, ticker lines, emotes, closures: what a human reads as it passes, kept across resyncs. */
     this.messages = [];
     this.nextMessageId = 1;
@@ -322,6 +324,7 @@ export class StrongholdClient extends EventEmitter {
         ...(this.last.welcome ? { welcome: redactWelcome(this.last.welcome) } : {}),
       },
       messages: this.messages.slice(),
+      lastEmote: this.lastEmote,
       queuedEvents: this.events.length,
       ...(this.battleSimulation ? { battleSimulation: this.battleSimulation } : {}),
       ...(this.recorder ? { recorder: this.recorder } : {}),
@@ -376,6 +379,7 @@ export class StrongholdClient extends EventEmitter {
   _clearRoomFrames() {
     const { welcome } = this.last;
     this._clearCachedFrames();
+    this.lastEmote = null;
     if (welcome) this.last.welcome = welcome;
     this.emit('room.left');
   }
@@ -462,6 +466,8 @@ export class StrongholdClient extends EventEmitter {
     if (!msg || typeof msg !== 'object' || typeof msg.t !== 'string') return;
     if (msg.t === 'pong' && msg.rid == null) return;
     if (MESSAGE_FRAMES.has(msg.t)) this._rememberMessage(msg);
+    if (msg.t === 'm.emote' && msg.playerId === this.playerId) this.lastEmote = { at: Date.now(), round: this.last['m.public']?.round ?? null };
+    if (msg.t === 'room.state' && !msg.inMatch) this.lastEmote = null; // the next match starts from silence
     if (msg.t === 'welcome') {
       this.welcome = msg;
       this.playerId = msg.playerId || this.playerId;

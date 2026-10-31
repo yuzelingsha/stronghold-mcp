@@ -64,6 +64,7 @@ compact 不写出默认值：`null` 的字段、`golden/sold/frozen/elite/boss/c
 | `reroll_vote` | 服务端 + 推导 | 重随投票进行中才出现：见下文 |
 | `setup` | 服务端 + 数据 | 本局抽到的内容：见下文 |
 | `messages` | 服务端 | 弹出提示、滚动播报、表情：见下文 |
+| `comms` | 派生 | 联机有其他真人时才有：沉默回合数、等你回应的表情、队友是否在等你：见下文 |
 | `scouted` / `scouted_age_ms` | 服务端 + 数据 | 备战时最近一次侦察：见下文 |
 | `fields` | 服务端 | 战场存在时才出现：`fieldId` / `kind` / `players` / `live` / `progress` |
 | `unite` / `unite_result` | 服务端 | 联防的 `helpers` / `leakers`；结算时的 `through` / `helpers` / `leakers` / `losses`（`losses` 是本回合扣的生命值） |
@@ -313,10 +314,24 @@ observation 里的所有帧都是「**最后一次收到的**」。因此一个�
 |---|---|
 | `toast` | `kind`（`error` / `warn` / `info` 等）、`text` |
 | `ticker` | `text`、`playerId` |
-| `emote` | `playerId`、`name`、`emote`（id）、`label`（含义，编号贴图没有） |
+| `emote` | `playerId`、`name`、`emote`（id）、`label`（含义，编号贴图没有）、`mine`（自己发的才有） |
 | `room_closed` | `reason` |
 
 传 `since` 时只返回新条目。这些内容来自其他玩家和服务端，是对局数据。
+
+---
+
+## `comms`（队友交流）
+
+座位上有其他真人玩家时出现，`RESULT` 阶段和单人、全 AI 队友的对局里没有。这一段只给事实和可用的表情 id，发不发由 agent 决定。
+
+| 字段 | 含义 |
+|---|---|
+| `rounds_silent` | 距上次发表情过了几个回合；这局还没发过时等于当前回合数 |
+| `reply_to` | 等你回应的队友表情：`name`、`label`、`reply`（回应用的 `g.emote` id）。没有时省略 |
+| `waiting_on_me` | `INFO_CHECK` / `PREP` 里其他在线的存活玩家都已就绪，只差你；否则省略 |
+
+`reply_to` 只列真人队友，取最近一回合内、你上次发表情之后收到的最新一条。你在当前回合发过表情后它就清空，到下一回合才会再出现：AI 队友会自动回应玩家的表情，两个 agent 也可能互相回应，这样每个座位每回合最多回应一次，不会没完没了。
 
 ---
 

@@ -195,12 +195,20 @@ function bondOverview(data, disabled) {
 }
 
 const EMOTES_TITLE = '表情';
+/** g.emote's whitelist has this many ids: shared/constants.js EMOTES. */
+const GAME_EMOTE_COUNT = 36;
 
 function emotesSection() {
   return {
     id: 'emotes',
     title: EMOTES_TITLE,
-    text: ['g.emote { id } 发送表情，全部玩家都能看到，冷却 1 秒。收到的表情在 observe 的 messages 里，type 为 emote。'],
+    text: [
+      '表情是玩家之间唯一的局内交流方式。g.emote { id } 在对局中发送，冷却 1 秒，全部玩家和观战席都能看到；发送要占玩家座位，观战席只接收。',
+      '收到的表情在 observe 的 messages 里，type 为 emote，带发送者 name、回合 round、id（emote）和含义 label；stronghold_wait_event 以 m.emote 帧返回。',
+      `这里列出有含义的 ${Object.keys(EMOTES).length} 个 id。其余 ${GAME_EMOTE_COUNT - Object.keys(EMOTES).length} 个是编号贴图，只带 id。`,
+      '表情只传递 label 这几个字；它指向哪名干员、哪个位置或哪一回合，由接收方结合当时的局面判断。',
+      'observe 的 comms 段列出等你回应的队友表情（reply_to）和距你上次发表情的回合数（rounds_silent）。',
+    ],
     emotes: Object.entries(EMOTES).map(([id, label]) => ({ id, label })),
   };
 }

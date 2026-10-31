@@ -20,6 +20,7 @@
  *   fields / unite / unite_result   during battle: the live fields, the 联防 roles, and how a 联防 ended
  *   boss_hp / team_lp               the shared pools of the Final Assault
  *   messages                        the toasts, ticker lines and emotes that passed by
+ *   comms                           with another human at the table: how long this seat has been silent, who waits on it
  *   result                          during RESULT: the settlement screen
  *   reroll_vote                     while a setup reroll vote runs: who was asked, who agreed, whether this seat still owes a vote
  *   band_draft                      during BAND_DRAFT: every strategy the draft screen offers, and whose turn it is
@@ -31,7 +32,7 @@
  * STRONGHOLD_FIELD_REGION="r0,r1,c0,c1" for a layout it does not describe.
  */
 
-import { EMOTES } from './guide-notes.js';
+import { EMOTES, EMOTE_REPLIES } from './guide-notes.js';
 
 /** The game's own `GEO.FIELD` — the seat's deployable board region (r0, r1, c0, c1). */
 export const DEFAULT_FIELD_REGION = Object.freeze([9, 12, 2, 10]);
@@ -399,15 +400,52 @@ function resultView(data, raw) {
 }
 
 /** One line of what passed by. A player's words reach the agent as data here, inside `text` / `name`. */
-function messageView({ id, at, round, frame }, pub) {
+function messageView({ id, at, round, frame }, pub, myId) {
   const base = { id, at, round };
   if (frame.t === 'm.toast') return { ...base, type: 'toast', kind: orNull(frame.kind), text: orNull(frame.text) };
   if (frame.t === 'm.ticker') return { ...base, type: 'ticker', text: orNull(frame.text), playerId: orNull(frame.playerId) };
   if (frame.t === 'm.emote') {
     const name = list(pub.players).find((p) => p?.playerId === frame.playerId)?.name;
-    return { ...base, type: 'emote', playerId: orNull(frame.playerId), name: orNull(name), emote: orNull(frame.id), label: orNull(EMOTES[frame.id]) };
+    const mine = myId != null && frame.playerId === myId ? { mine: true } : {};
+    return { ...base, type: 'emote', playerId: orNull(frame.playerId), name: orNull(name), emote: orNull(frame.id), label: orNull(EMOTES[frame.id]), ...mine };
   }
   return { ...base, type: 'room_closed', reason: orNull(frame.reason) };
+}
+
+/** The phases where m.public `ready` says who is holding the table up. */
+const READY_PHASES = new Set(['INFO_CHECK', 'PREP']);
+
+/**
+ * What a seat needs to stop playing in silence: facts and a ready emote id, and the agent decides what to send.
+ *
+ * Only with another human in a seat: an AI teammate needs no answer, and it answers a player's emote by itself, so
+ * answering it back would go on forever. Two agents can do the same to each other, so once a seat has spoken in a round
+ * reply_to stays empty until the next one.
+ *
+ * @returns {{ rounds_silent: number, reply_to?: object[], waiting_on_me?: true } | null}
+ */
+export function commsView(pub, messages, lastEmote, myId) {
+  const humans = list(pub.players).filter((p) => isObject(p) && !p.isBot && p.playerId !== myId);
+  if (!humans.length || pub.phase == null || pub.phase === 'RESULT') return null;
+  const round = Number(pub.round) || 0;
+  const comms = { rounds_silent: Math.max(0, round - (Number(lastEmote?.round) || 0)) };
+
+  if (lastEmote?.round !== round) {
+    const latest = new Map();
+    for (const { at, round: said, frame } of list(messages)) {
+      const reply = frame?.t === 'm.emote' ? EMOTE_REPLIES[frame.id] : null;
+      // an emote from the last settlement is read in the next round's prep
+      if (reply && at > (lastEmote?.at ?? 0) && said >= round - 1) latest.set(frame.playerId, { id: frame.id, reply });
+    }
+    const replyTo = humans.filter((p) => latest.has(p.playerId))
+      .map((p) => ({ name: orNull(p.name), label: EMOTES[latest.get(p.playerId).id], reply: latest.get(p.playerId).reply }));
+    if (replyTo.length) comms.reply_to = replyTo;
+  }
+
+  const seated = humans.filter((p) => p.alive !== false && p.connected !== false);
+  const me = list(pub.players).find((p) => isObject(p) && p.playerId === myId);
+  if (READY_PHASES.has(pub.phase) && me && !me.ready && seated.length && seated.every((p) => p.ready)) comms.waiting_on_me = true;
+  return comms;
 }
 
 /** `room.state`, the only frame a lobby has: before the match starts there is no m.public to list the seats. */
@@ -607,9 +645,11 @@ export function observation(state, data = {}, { env = process.env, detail = 'ful
     effects: effectsView(priv.effects),
     next_enemies: wavePreview(data, priv.nextEnemies),
     players,
-    messages: list(state?.messages).map((entry) => messageView(entry, pub)),
+    messages: list(state?.messages).map((entry) => messageView(entry, pub, myId)),
     field: field(data, pub.stageId, fieldRegion(env)),
   };
+  const comms = commsView(pub, state?.messages, state?.lastEmote, myId);
+  if (comms) obs.comms = comms;
   if (connection.reconnecting) obs.reconnecting = true;
   if (nonEmpty(pub)) obs.setup = setupView(data, pub);
   if (list(pub.fields).length) obs.fields = fieldsView(pub);
