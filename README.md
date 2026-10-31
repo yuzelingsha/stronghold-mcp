@@ -273,6 +273,7 @@ with Agent.connect(name="Agent") as game:
 | `scouted` | 备战时最近一次侦察（`g.watch`）看到的场地 |
 | `fields` / `unite` / `boss_hp` / `team_lp` | 战场进度、联防、最终攻势的血池 |
 | `messages` | 最近的提示、播报和表情，传 `since` 时只给新的 |
+| `comms` | 联机时的沉默回合数、等你回应的队友表情、队友是否在等你 |
 | `result` | 结算画面，只在 `RESULT` 阶段出现 |
 | `field` | 可部署格（近战 / 仅远程）、敌人行进路线、渲染出的地图切片 |
 | `battle` | 本地战斗模拟器的状态；`stale` 表示它描述的是上一场 |

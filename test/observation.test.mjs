@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { lookup } from '../mcp/gamedata.js';
-import { fieldRegion, observation, rangeTiles, secondsLeft } from '../mcp/observation.js';
+import { commsView, fieldRegion, observation, rangeTiles, secondsLeft } from '../mcp/observation.js';
 import { registerTools, toolMode } from '../mcp/tools.js';
 import { ACTIONS } from '../mcp/protocol.js';
 
@@ -487,5 +487,79 @@ describe('MCP tools', () => {
     const reply = await register({}).get('stronghold_observe')({});
     assert.equal(reply.structuredContent.connected, false);
     assert.equal(reply.structuredContent.data_error, 'offline');
+  });
+});
+
+describe('comms', () => {
+  const me = { playerId: 'p1', name: '甲', ready: false };
+  const mate = { playerId: 'p2', name: '乙', ready: false };
+  const bot = { playerId: 'b1', name: 'AI', isBot: true, ready: true };
+  const pub = (phase, round, ...others) => ({ phase, round, players: [me, ...others] });
+  const emote = (at, round, playerId, id) => ({ id: at, at, round, frame: { t: 'm.emote', playerId, id } });
+
+  it('stays out of solo, an all-AI table and the result screen', () => {
+    assert.equal(commsView(pub('PREP', 3), [], null, 'p1'), null);
+    assert.equal(commsView(pub('PREP', 3, bot), [], null, 'p1'), null);
+    assert.equal(commsView(pub('RESULT', 3, mate), [], null, 'p1'), null);
+    assert.equal(commsView({}, [], null, 'p1'), null);
+  });
+
+  it('counts the rounds since this seat last spoke', () => {
+    assert.deepEqual(commsView(pub('PREP', 4, mate), [], null, 'p1'), { rounds_silent: 4 });
+    assert.deepEqual(commsView(pub('PREP', 4, mate), [], { at: 5, round: 4 }, 'p1'), { rounds_silent: 0 });
+    assert.deepEqual(commsView(pub('COMBAT', 7, mate), [], { at: 5, round: 4 }, 'p1'), { rounds_silent: 3 });
+  });
+
+  it('offers a reply to the newest emote of each teammate, once this seat is the one to answer', () => {
+    const messages = [emote(10, 3, 'p2', 'autochess_battle_happy'), emote(11, 3, 'p2', 'slug_autochess_battle_thanks')];
+    assert.deepEqual(commsView(pub('COMBAT', 3, mate), messages, null, 'p1').reply_to, [{ name: '乙', label: '谢谢！', reply: 'autochess_battle_noproblem' }]);
+    // an emote from before this seat last spoke is answered already
+    assert.equal(commsView(pub('COMBAT', 4, mate), messages, { at: 12, round: 3 }, 'p1').reply_to, undefined);
+  });
+
+  it('reads last round’s emote in this round’s prep and lets an older one go', () => {
+    const said = [emote(10, 3, 'p2', 'autochess_battle_thanks')];
+    assert.equal(commsView(pub('PREP', 4, mate), said, null, 'p1').reply_to.length, 1);
+    assert.equal(commsView(pub('PREP', 5, mate), said, null, 'p1').reply_to, undefined);
+  });
+
+  it('never answers an AI teammate, a numbered sticker or itself, so nothing goes round in circles', () => {
+    const messages = [
+      emote(10, 3, 'b1', 'autochess_battle_happy'),
+      emote(11, 3, 'p1', 'autochess_battle_happy'),
+      emote(12, 3, 'p2', 'autochess_battle_fooldoctor_01'),
+    ];
+    assert.equal(commsView(pub('PREP', 3, mate, bot), messages, null, 'p1').reply_to, undefined);
+  });
+
+  it('holds replies back once this seat has spoken this round, so two agents cannot chain them', () => {
+    const answer = [emote(20, 3, 'p2', 'autochess_battle_happy')];
+    assert.equal(commsView(pub('COMBAT', 3, mate), answer, { at: 10, round: 3 }, 'p1').reply_to, undefined);
+    assert.equal(commsView(pub('PREP', 4, mate), answer, { at: 10, round: 3 }, 'p1').reply_to.length, 1);
+  });
+
+  it('says when the table waits on this seat alone', () => {
+    const ready = { ...mate, ready: true };
+    assert.equal(commsView(pub('PREP', 2, ready), [], null, 'p1').waiting_on_me, true);
+    assert.equal(commsView(pub('INFO_CHECK', 1, ready), [], null, 'p1').waiting_on_me, true);
+    assert.equal(commsView(pub('PREP', 2, mate), [], null, 'p1').waiting_on_me, undefined);
+    assert.equal(commsView(pub('COMBAT', 2, ready), [], null, 'p1').waiting_on_me, undefined);
+    assert.equal(commsView({ phase: 'PREP', round: 2, players: [{ ...me, ready: true }, ready] }, [], null, 'p1').waiting_on_me, undefined);
+    // a teammate who is gone is not waiting
+    assert.equal(commsView(pub('PREP', 2, ready, { playerId: 'p3', ready: false, alive: false }), [], null, 'p1').waiting_on_me, true);
+    assert.equal(commsView(pub('PREP', 2, { ...mate, connected: false }), [], null, 'p1').waiting_on_me, undefined);
+  });
+
+  it('reaches observe, and marks this seat’s own emote in messages', () => {
+    const s = state();
+    s.connection.playerId = 'p1';
+    s.playerId = 'p1';
+    s.last['m.private'].playerId = 'p1';
+    s.last['m.public'].players = [{ ...me }, { ...mate }];
+    s.messages = [emote(10, 3, 'p1', 'autochess_battle_thanks')];
+    s.lastEmote = { at: 10, round: 3 };
+    const obs = observation(s, DATA, { detail: 'compact' });
+    assert.deepEqual(obs.comms, { rounds_silent: 0 });
+    assert.equal(obs.messages[0].mine, true);
   });
 });

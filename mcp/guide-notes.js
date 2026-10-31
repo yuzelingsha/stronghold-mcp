@@ -23,12 +23,12 @@ export const EMOTES = Object.freeze({
   autochess_battle_thanks: '谢谢',
   autochess_battle_thinking: '思考',
   autochess_battle_nice_cooperate: '合作愉快',
-  autochess_battle_slug_nice_work: '合作愉快！',
-  autochess_battle_slug_thanks: '谢谢！',
-  autochess_battle_slug_sorry: '对不起！',
-  autochess_battle_slug_bye: '再见！',
-  autochess_battle_slug_distrust: '？？？',
-  autochess_battle_slug_very_soon: '很快就好！',
+  slug_autochess_battle_nice_work: '合作愉快！',
+  slug_autochess_battle_thanks: '谢谢！',
+  slug_autochess_battle_sorry: '对不起！',
+  slug_autochess_battle_bye: '再见！',
+  slug_autochess_battle_distrust: '？？？',
+  slug_autochess_battle_very_soon: '很快就好！',
   autochess_battle_noproblem: '没问题！',
   autochess_battle_respect: '敬礼！',
   autochess_battle_call: '欢呼！',
@@ -36,6 +36,40 @@ export const EMOTES = Object.freeze({
   autochess_battle_sad: '伤心',
   autochess_battle_dying: '快死了',
 });
+
+/**
+ * The answer to a teammate's emote, after the game's own AI teammates (server/match/botEmotes.js onHumanEmote), with
+ * the 虫动 variants, 再见 and 敬礼 added. observe offers it in comms.reply_to; the agent decides whether to send it.
+ */
+export const EMOTE_REPLIES = Object.freeze({
+  autochess_battle_thanks: 'autochess_battle_noproblem',
+  slug_autochess_battle_thanks: 'autochess_battle_noproblem',
+  autochess_battle_sorry: 'autochess_battle_noproblem',
+  slug_autochess_battle_sorry: 'autochess_battle_noproblem',
+  autochess_battle_nice_cooperate: 'autochess_battle_thanks',
+  slug_autochess_battle_nice_work: 'autochess_battle_thanks',
+  autochess_battle_happy: 'autochess_battle_happy',
+  autochess_battle_call: 'autochess_battle_playingcool',
+  autochess_battle_playingcool: 'autochess_battle_happy',
+  autochess_battle_sad: 'autochess_battle_sad',
+  autochess_battle_respect: 'autochess_battle_respect',
+  slug_autochess_battle_bye: 'slug_autochess_battle_bye',
+});
+
+/**
+ * When players speak: the moment and the emote that fits it, for the server's instructions. The moments follow the
+ * game's own AI teammates (server/match/botEmotes.js), which send about one emote a round; 就绪等待 and 生命值 are added.
+ */
+export const EMOTE_MOMENTS = Object.freeze([
+  ['队友都已就绪，你还在操作（comms.waiting_on_me）', 'slug_autochess_battle_very_soon'],
+  ['你在考虑机变或策略的选择', 'autochess_battle_thinking'],
+  ['你上场联防（unite.helpers 有你）', 'autochess_battle_nice_cooperate'],
+  ['队友替你联防（unite.leakers 有你）', 'autochess_battle_thanks'],
+  ['你这回合漏了怪', 'autochess_battle_sorry'],
+  ['你这回合完美作战', 'autochess_battle_playingcool'],
+  ['队伍拿下关键一战', 'autochess_battle_call'],
+  ['你的生命值快耗尽', 'autochess_battle_dying'],
+]);
 
 /**
  * Chapters, in reading order. `summary` says what a chapter covers and goes into the server's static instructions;

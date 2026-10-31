@@ -1,8 +1,16 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { bondScalers, bondStackers, createGuide, genericStackers, guideIndex, guideSections, traitClauses } from '../mcp/guide.js';
-import { CHAPTERS, EMOTES } from '../mcp/guide-notes.js';
+import { CHAPTERS, EMOTES, EMOTE_MOMENTS, EMOTE_REPLIES } from '../mcp/guide-notes.js';
+
+/** The game's g.emote whitelist with its labels, frozen from shared/constants.js EMOTE_CATALOG: CI has no game source. */
+const GAME_EMOTES = JSON.parse(readFileSync(new URL('./fixtures/game-emotes.json', import.meta.url), 'utf8'));
+const GAME_CONSTANTS = process.env.STRONGHOLD_SRC
+  ? `${process.env.STRONGHOLD_SRC}/shared/constants.js`
+  : fileURLToPath(new URL('../../work/stronghold-src/shared/constants.js', import.meta.url));
 
 const DATA = {
   bonds: {
@@ -52,6 +60,23 @@ describe('guide', () => {
     const [section] = guideSections(coop, DATA, ['emotes']).sections;
     assert.equal(section.emotes.length, Object.keys(EMOTES).length);
     assert.deepEqual(section.emotes[3], { id: 'autochess_battle_thanks', label: '谢谢' });
+    assert.match(section.text.join('\n'), /有含义的 18 个 id。其余 18 个是编号贴图/);
+    assert.equal(Object.keys(GAME_EMOTES).length, 36);
+    for (const line of section.text) assert.doesNotMatch(line, /不(?!同)|没|无|非|(?<!分)别|勿/, line);
+  });
+
+  it('names each emote exactly as the game’s whitelist does', () => {
+    assert.deepEqual(Object.entries(EMOTES).filter(([id, label]) => GAME_EMOTES[id] !== label), []);
+  });
+
+  it('offers only emotes the game accepts, in the replies and the moments', () => {
+    const offered = [...Object.keys(EMOTE_REPLIES), ...Object.values(EMOTE_REPLIES), ...EMOTE_MOMENTS.map(([, id]) => id)];
+    assert.deepEqual(offered.filter((id) => !(id in GAME_EMOTES) || !(id in EMOTES)), []);
+  });
+
+  it('keeps the emote fixture in step with the game source', { skip: !existsSync(GAME_CONSTANTS) && 'needs the game source (STRONGHOLD_SRC)' }, async () => {
+    const { EMOTE_CATALOG } = await import(pathToFileURL(GAME_CONSTANTS));
+    assert.deepEqual(GAME_EMOTES, Object.fromEntries(EMOTE_CATALOG.map((emote) => [emote.id, emote.label])));
   });
 
   it('derives each bond’s stackers from the operators’ traits', () => {

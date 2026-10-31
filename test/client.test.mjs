@@ -247,6 +247,26 @@ describe('StrongholdClient', () => {
     await seat.close();
   });
 
+  it('remembers this seat’s newest emote until the match is over', async () => {
+    const seat = new StrongholdClient({ wsUrl: server.url, name: 'Talker' });
+    await seat.connect();
+    await settle();
+    server.push({ t: 'm.public', round: 4 });
+    server.push({ t: 'm.emote', playerId: 'somebody-else', id: 'x' });
+    await settle();
+    assert.equal(seat.snapshot().lastEmote, null);
+    server.push({ t: 'm.emote', playerId: seat.playerId, id: 'x' });
+    await settle();
+    assert.equal(seat.snapshot().lastEmote.round, 4);
+    server.push({ t: 'room.state', inMatch: true });
+    await settle();
+    assert.equal(seat.snapshot().lastEmote.round, 4);
+    server.push({ t: 'room.state', inMatch: false });
+    await settle();
+    assert.equal(seat.snapshot().lastEmote, null);
+    await seat.close();
+  });
+
   it('keeps what passed by across a resync and a closed room, and ends a scout with the prep', async () => {
     const seat = new StrongholdClient({ wsUrl: server.url, name: 'Log' });
     await seat.connect();

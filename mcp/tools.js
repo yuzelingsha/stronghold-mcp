@@ -55,7 +55,7 @@ export function registerTools(server, client, { env = process.env, gameData = ga
   const observeLog = createObservationLog();
   server.registerTool('stronghold_observe', {
     title: 'Observe the match',
-    description: 'Read the match. Check connected and has_frames first. detail="compact" (default) puts static stats once per kind:id in catalog and leaves out default values (an absent flag is false); "full" joins stats onto every instance. Pass the rev of your last observe as since to receive only what changed: sections listed in unchanged are as in that response, removed keys are gone, catalog and messages hold only new entries. resync:true means since was unknown and this is the whole observation. includeField/includeReport=false omit those sections.',
+    description: 'Read the match. Check connected and has_frames first. detail="compact" (default) puts static stats once per kind:id in catalog and leaves out default values (an absent flag is false); "full" joins stats onto every instance. Pass the rev of your last observe as since to receive only what changed: sections listed in unchanged are as in that response, removed keys are gone, catalog and messages hold only new entries. resync:true means since was unknown and this is the whole observation. includeField/includeReport=false omit those sections. During a match, tell the user in plain text what you are doing: one or two sentences in the same reply as your next tool call.',
     inputSchema: z.object({
       detail: z.enum(['full', 'compact']).optional(),
       since: z.number().int().min(1).optional(),
