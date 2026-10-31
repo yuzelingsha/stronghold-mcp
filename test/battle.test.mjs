@@ -247,4 +247,23 @@ describe('simulation retry', () => {
     assert.equal(loads, 2);
     assert.equal(status.fingerprint, 'version2');
   });
+
+  it('announces each report, which the status replaces with the next battle', { timeout: 2000 }, async () => {
+    const client = Object.assign(new EventEmitter(), { last: {}, connected: true, _send() {} });
+    const getSim = async () => ({
+      constants: { TICK: 1 / 30 },
+      spec: {
+        createBattleFromSpec: () => ({ finished: true, time: 0, result: () => ({ reason: 'cleared', killed: 3, total: 3 }) }),
+        compactResult: (result) => result,
+        battleProgress: () => ({ killed: 3, total: 3, done: true }),
+        attachLpMeter: () => ({ detach() {} }),
+      },
+    });
+    attachLocalBattleClient(client, getSim, { mode: 'fast' });
+    const reported = new Promise((resolve) => client.once('battle.report', resolve));
+    client.emit('b.start', { authoritative: true, battleId: 'b1', spec: { round: 3, kind: 'normal' } });
+    const battle = await reported;
+    assert.deepEqual([battle.round, battle.kind, battle.reason], [3, 'normal', 'cleared']);
+    assert.equal(battle.report.round, 3);
+  });
 });

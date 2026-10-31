@@ -148,10 +148,9 @@
 
 经验由 agent 自己积累，和游戏事实分开。`stronghold_guide` 只讲规则，不放打法。
 
-1. **Recorder（先做）。** 默认关闭，由环境变量开启，线上部署不开。按局把每回合阵容快照、每场 `battle.report` 和 `m.result` 追加到本地 `.jsonl`。
-   依赖 P1-3。现在只保留最后一场战报，赛后回看不到中途的掉血回合。
-2. **赛后复盘模板。** 写进 `docs/prompting.md` 的任务提示词，agent 用自己的文件能力读写本地笔记，不增加 MCP 工具。
-3. **笔记规则。**
+1. ✅ **Recorder。** `STRONGHOLD_RECORD_DIR` 开启，默认关闭，线上部署不开。按局把每回合阵容快照、每场 `battle.report` 和 `m.result` 追加到本地 `.jsonl`，格式见 `docs/prompting.md`。
+2. ✅ **赛后复盘模板。** 写进 `docs/prompting.md` 的任务提示词，agent 用自己的文件能力读写本地笔记，不增加 MCP 工具。
+3. ✅ **笔记规则。** 写在模板里：
    - 每条带证据：Recorder 的局 id 或 `m.result.seed` 加回合号，房间号不保证唯一。
    - 能从 `field`、`catalog` 算出来的内容不写：路线汇合点、地块、面板。
    - 按主题限制条数和长度，新内容合并或替换旧内容。

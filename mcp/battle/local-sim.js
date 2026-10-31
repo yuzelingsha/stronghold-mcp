@@ -168,6 +168,7 @@ export function attachLocalBattleClient(client, getSim, options = {}) {
       report, ...extra,
     };
     status.report = report;
+    client.emit('battle.report', status.lastResult);
     entry.meter?.detach();
   }
 

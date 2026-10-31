@@ -452,6 +452,7 @@ MCP 和 driver 启动时会读仓库根目录的 `.env`；**已经在环境里�
 | `STRONGHOLD_MCP_TOOLS` | `compact` | 默认 9 个通用工具；`full` 额外注册每个动作的便利工具，共 62 个 |
 | `STRONGHOLD_DATA_DIR` | 空 | 本机游戏的 `data/` 目录；不设则从服务器 `/data/` 取 observation 用的数据 |
 | `STRONGHOLD_FIELD_REGION` | `9,12,2,10` | 本座位半场的 `r0,r1,c0,c1`，默认即游戏 `GEO.FIELD` |
+| `STRONGHOLD_RECORD_DIR` | 空 | 每局一个 `.jsonl` 写到这个目录，供赛后复盘（见 [docs/prompting.md](docs/prompting.md)）；空 = 不记录 |
 | `MCP_TRANSPORT` | `stdio` | `http` = Streamable HTTP |
 | `MCP_HTTP_HOST` / `MCP_HTTP_PORT` | `127.0.0.1` / `8787` | HTTP 传输监听地址 |
 | `MCP_HTTP_USER` / `MCP_HTTP_PASSWORD` | 空 | HTTP 传输的 Basic Auth；未设置时依次用 `STRONGHOLD_AUTH_*`、`SP_AUTH_*` |
@@ -493,6 +494,7 @@ stronghold-mcp/
 │   ├── protocol.js            动作表（工具列表与文档的唯一来源）
 │   ├── observation.js         帧 + 数据文件 → 决策用快照
 │   ├── observe-log.js         增量观察（rev / since）
+│   ├── recorder.js            本地对局记录（STRONGHOLD_RECORD_DIR）
 │   ├── guide.js               stronghold_guide：教程章节 + 本局参考页
 │   ├── guide-notes.js         教程章节（对照源码核实，数字取自 config.json）
 │   ├── gamedata.js            observation 用的数据文件（服务器 /data/ 或本机目录）

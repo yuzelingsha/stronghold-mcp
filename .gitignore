@@ -19,3 +19,4 @@ auth.env
 # runtime output
 *.log
 logs/
+*.jsonl
