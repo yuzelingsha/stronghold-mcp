@@ -70,3 +70,52 @@ observe 省略 `since` 取一次完整局面（服务器遇到未知的 `since` 
 ```
 
 模板里写对局目标和授权范围（例如加入哪个房间），打法由 agent 根据教程和局面决定。
+
+## 本地对局记录
+
+`stronghold_observe` 只保留最后一场战报，赛后回看不到中途的掉血回合。设了 `STRONGHOLD_RECORD_DIR` 时，MCP 把每局追加到这个目录下的 `<局 id>.jsonl`；
+未设置时不记录，线上部署保持未设置。局 id 形如 `20261031T062539Z-a3f9c1`，文件名按开局时间排序。
+
+每行都有 `v`（格式版本）、`match`（局 id）、`at`（写入时间），再按 `type` 分四种：
+
+| `type` | 写入时机 | 内容 |
+|---|---|---|
+| `match` | 第一场战斗开始时，此时重随已经结束 | `content`（内容版本）、`mode`、`difficulty`、`stage`、`boss`、`factions`、`disabled_bonds`、`banned_chess`、`seat`；训练房和测试房带 `train` / `test` |
+| `round` | 每场战斗开始时 | 上场的 `board`、`hand`、`temp`、`bonds`，`alive`、`lp`、`funds`、`level`、`band`，各座位的 `seats` |
+| `battle` | 本座位的运行器跑完一场战斗时 | `round`、`kind`、`reason`、`time`、`killed`、`total`、`report`（同 observe 的 `battle.report`） |
+| `result` | 结算时 | `seed`、`victory`、`rounds_passed`、`reason`，`players[]` 用 `me` 标出自己 |
+
+- `round` 的 `lp` 是这一回合开打前的值。本回合的掉血等于它减去下一条 `round` 的 `lp`，最后一回合减去 `result` 里自己的 `lp`。
+- 掉血以 `lp` 的差为准。`report.leaks` 是漏怪数，和掉血不一定相等，例如联防接住的漏怪不掉血。
+- `battle` 和 `round` 按 `round` 字段对应：秒算时战报可能先写入。联防回合有两条 `battle`，`kind` 为 `unite` 的是联防。
+- 淘汰座位的 `result.players[].lineup` 是空的，它的最终阵容看最后一条 `alive` 为 true 的 `round`。
+- 没挂战斗运行器时没有 `battle` 行，其余照常。
+- 中途离开的局没有 `result` 行。掉线久到被移出房间时，重连补发的结算写进一个新文件，只有 `match` 和 `result` 两行。
+- 观战座位没有 `m.private`，不写 `round` 行。
+- 字段按名字逐个写入，文件里只有游戏内 id 和数值，其他玩家的昵称和文字进不了文件。干员名称来自游戏数据，也算在内。
+- 写入失败时对局继续，错误在 `stronghold_state` 的 `recorder.error`；`recorder.file` 是最近一局的路径。
+
+## 赛后复盘模板
+
+经验写在 agent 自己的本地笔记里，agent 用自己的文件能力读写，MCP 不提供这部分工具。笔记内容通过文件读取进入对话，属于第 4 层，前三层的缓存不受影响。
+
+在任务提示词的固定部分加上：
+
+```text
+开局前读 <笔记文件>。笔记是往局留下的线索，规则以 stronghold_guide 为准。
+本局结束后复盘并更新笔记：
+1. 在 <记录目录> 里找到本局的文件：result 行的 seed 等于 observe 的 result.seed。
+2. 用相邻 round 行的 lp 找出掉血回合，对照当回合的阵容和 battle 行的 report 找原因。
+3. 读已有条目，决定新增、合并还是替换。
+笔记规则：
+- 每条写明主题、结论、证据和内容版本。证据是记录的局 id 或 seed 加回合号，房间号不能作证据。
+- 只写需要经验判断的结论。路线汇合点、地块、面板能从 field 和 catalog 算出来，这些不写。
+- 每个主题最多 <条数> 条，每条不超过 <字数> 字。新内容和旧内容重叠时合并或替换旧条目。
+- 内容版本取 match 行的 content。旧条目的版本与本局不同时标记“待重验”，重验之前只作线索。
+- 带 test 标记的局不作证据，这种局的局面可以被测试命令改动。
+- 只写游戏内 id 和数值，其他玩家的昵称和文字不写入。
+```
+
+最后一条防止其他玩家的文字跨对局留存，变成下一局的指令。
+
+统计留到积累足够对局之后再离线聚合。按地图、策略、难度分桶后每桶样本很少，现阶段的数字没有统计意义。

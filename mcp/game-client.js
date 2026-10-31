@@ -112,6 +112,8 @@ export class StrongholdClient extends EventEmitter {
     this.battleSimulation = null;
     /** Set by a battle adapter: the game's own range rule, from the simulation tree it loaded. */
     this.attackRangeGrid = null;
+    /** Set by mcp/recorder.js when this seat keeps a local match log. */
+    this.recorder = null;
   }
 
   get connected() {
@@ -322,6 +324,7 @@ export class StrongholdClient extends EventEmitter {
       messages: this.messages.slice(),
       queuedEvents: this.events.length,
       ...(this.battleSimulation ? { battleSimulation: this.battleSimulation } : {}),
+      ...(this.recorder ? { recorder: this.recorder } : {}),
     };
     if (includeRecent) result.recentEvents = this.events.slice(-MAX_RECENT);
     return result;

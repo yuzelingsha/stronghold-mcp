@@ -19,6 +19,7 @@
  *   STRONGHOLD_LOCAL_BATTLE=1                                   attach a local battle runner
  *   STRONGHOLD_SIM_ROOT                                         where the game's sim lives (see mcp/battle/)
  *   STRONGHOLD_MCP_TOOLS=compact                                generic tools only (see mcp/tools.js)
+ *   STRONGHOLD_RECORD_DIR                                       keep a local .jsonl per match (see mcp/recorder.js)
  */
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { createServer as createHttpServer } from 'node:http';
@@ -27,6 +28,7 @@ import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import { loadDotEnv } from './env.js';
 import { StrongholdClient } from './game-client.js';
 import { createSessionTable, idleMsFrom } from './http-sessions.js';
+import { attachRecorder } from './recorder.js';
 import { SERVER_NAME, createMcpServer } from './server.js';
 
 loadDotEnv();
@@ -71,6 +73,7 @@ function truthy(value) {
 
 async function runStdio() {
   const client = new StrongholdClient();
+  attachRecorder(client);
   await maybeAttachBattle(client);
   const server = createMcpServer(client);
   const transport = new StdioServerTransport();
@@ -137,6 +140,7 @@ async function runHttp() {
           return;
         }
         const client = new StrongholdClient();
+        attachRecorder(client);
         await maybeAttachBattle(client);
         const mcp = createMcpServer(client);
         const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
