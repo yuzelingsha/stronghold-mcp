@@ -169,14 +169,16 @@ export const CHAPTERS = Object.freeze([
   {
     id: 'tutorial.battle',
     title: '作战',
-    summary: '开局部署、再部署与 DP、阻挡、空中单位、伤害公式',
-    source: 'server/sim/battle/lifecycle.js:22-35, server/sim/battle/deploy.js:200-250, server/sim/damage.js:193,198, server/sim/units.js:217, server/sim/battle/blocking.js:85-88, server/sim/targeting.js:91',
+    summary: '开局部署、再部署与 DP、阻挡、空中单位、伤害公式、生成敌人与按次数击倒',
+    source: 'server/sim/battle/lifecycle.js:22-35, server/sim/battle/deploy.js:200-250, server/sim/damage.js:193,198, server/sim/units.js:217, server/sim/battle/blocking.js:85-88, server/sim/targeting.js:91, server/sim/damage.js:356-361, server/sim/content/enemies/helpers.js:304-314',
     lines: (c) => [
       '开战时棋盘上的干员全部免费部署：按列从左到右、同列从上到下依次入场。',
       `部署费用（cost）用于再部署：干员被击倒或撤退后，再部署时间结束且部署费用点数（DP）足够时回到场上。DP 开局${c.dp.init}点，每秒+${c.dp.perSec}，上限${c.dp.max}。`,
       '阻挡由站在地面格的干员完成，每名干员同时阻挡 block 个地面敌人。',
       '空中单位包括飞行敌人和带“近地悬浮”的 hover 敌人（沿地面路线走）。它们越过阻挡继续前进；普通攻击打到它们需要 hit_fly 为 true，部分技能自带对空。observe 的 fly 按这条规则标出。',
       '物理伤害 = 攻击力 − 防御力，至少为攻击力的5%。法术伤害 = 攻击力 × (1 − 法抗/100)，至少为攻击力的5%。真实伤害按原值结算。',
+      '卡面写着“被击倒后生成”的敌人倒下时，在倒下的位置生成新的敌人，沿剩下的路线继续走向 leak_tile。next_enemies 的数量只算本体，checks 的“本回合敌人特性”写出生成物。',
+      '卡面写着“需要N次伤害击倒”的敌人每受到一次伤害扣 1 点生命，击倒它看命中次数：攻击间隔短、一次打多个目标的干员击倒得快。卡面写着“无法被阻挡”的敌人穿过阻挡位，靠路线上的输出覆盖击倒。',
     ],
   },
   {

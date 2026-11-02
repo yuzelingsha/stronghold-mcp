@@ -667,6 +667,21 @@ function wavePreview(data, rawList, scale = null) {
   });
 }
 
+/** How many enemy kinds the leak line and the enemy-trait line describe. */
+const ENEMY_NOTES = 3;
+
+/**
+ * An enemy's card text as the wave preview shows it, with the card of what it leaves behind when it falls
+ * (talents DeadSpawn): "被击倒后生成2个【木制瑞印】；木制瑞印：不攻击，无法被阻挡，需要2次伤害击倒".
+ */
+function enemyNote(data, key) {
+  const raw = data.enemies?.[key];
+  const text = (record) => String(record?.desc ?? '').replace(/。$/, '');
+  if (!raw) return '';
+  const spawn = data.enemies?.[raw.talents?.bbStr?.['DeadSpawn.enemy_key']];
+  return [text(raw), spawn && text(spawn) ? `${spawn.name ?? ''}：${text(spawn)}` : ''].filter(Boolean).join('；');
+}
+
 const MAX_CHECKS = 16;
 /** Items in the bench described one per line; the rest are named together. */
 const ITEM_LINES = 2;
@@ -792,6 +807,19 @@ export function prepChecks(obs, data, pub) {
     const res = top('res');
     const armour = [def ? `防御最高 ${def.def}（${def.name ?? def.key}）` : '', res ? `法抗最高 ${res.res}（${res.name ?? res.key}）` : ''].filter(Boolean).join('，');
     lines.push(`本回合敌人 ${total} 只，总生命约 ${hp}${leader}${factors}${armour ? `；${armour}` : ''}`);
+    const kinds = new Map();
+    for (const e of wave) if (!e.boss && e.key) kinds.set(e.key, (kinds.get(e.key) ?? 0) + (Number(e.count) || 0));
+    const traits = [...kinds].filter(([key]) => list(data.enemies?.[key]?.abilities).length && enemyNote(data, key))
+      .sort((a, b) => b[1] - a[1]).slice(0, ENEMY_NOTES)
+      .map(([key, n]) => `${data.enemies[key].name ?? key} ×${n}（${enemyNote(data, key)}）`);
+    if (traits.length) lines.push(`本回合敌人特性：${traits.join('；')}`);
+  }
+  const leaked = Object.entries(obj(obs.battle?.report?.leaked_by_enemy)).filter(([, n]) => Number(n) > 0);
+  if (leaked.length) {
+    const count = leaked.reduce((sum, [, n]) => sum + Number(n), 0);
+    const who = leaked.sort((a, b) => b[1] - a[1]).slice(0, ENEMY_NOTES)
+      .map(([key, n]) => `${data.enemies?.[key]?.name ?? key} ×${n}${enemyNote(data, key) ? `（${enemyNote(data, key)}）` : ''}`);
+    lines.push(`上回合漏过 ${count} 只：${who.join('、')}`);
   }
   const dealt = list(obs.battle?.report?.units).reduce((sum, unit) => sum + (Number(unit.dmg) || 0), 0);
   if (dealt > 0) {

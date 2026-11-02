@@ -293,3 +293,28 @@ describe('the Final Assault preview', () => {
     assert.ok(!at(12).some((l) => l.includes('最终攻势')));
   });
 });
+
+describe('enemy cards in checks', () => {
+  const data = {
+    ...DATA,
+    enemies: {
+      ...DATA.enemies,
+      mill: { name: '磨砻', desc: '被击倒后生成2个【木制瑞印】。', abilities: [{ text: '被击倒后生成2个<木制瑞印>' }], talents: { bbStr: { 'DeadSpawn.enemy_key': 'seal' } }, stats: { maxHp: 2000, atk: 310 } },
+      seal: { name: '木制瑞印', desc: '不攻击，无法被阻挡，需要2次伤害击倒', abilities: [{ text: '无法被阻挡' }], stats: { maxHp: 2 } },
+      plain: { name: '萨卡兹大剑手', desc: '萨卡兹雇佣兵，拥有较高攻击力和较高法术抗性。', abilities: [], stats: { maxHp: 7500 } },
+    },
+  };
+  const run = (priv, pub = {}) => observation(state({ priv, pub }), data, { env: {}, detail: 'compact' }).checks;
+
+  it('reads the card of each wave enemy with a trait, and what it leaves behind', () => {
+    const lines = run({ nextEnemies: [{ enemyKey: 'mill', count: 3, t: 3 }, { enemyKey: 'mill', count: 2, t: 9 }, { enemyKey: 'plain', count: 4, t: 5 }] });
+    has(lines, '本回合敌人特性：磨砻 ×5（被击倒后生成2个【木制瑞印】；木制瑞印：不攻击，无法被阻挡，需要2次伤害击倒）');
+  });
+
+  it('names what leaked last round', () => {
+    const s = state();
+    s.battleSimulation = { lastResult: { round: 2, report: { leaked_by_enemy: { seal: 8, plain: 1 }, units: [] } } };
+    const lines = observation(s, data, { env: {}, detail: 'compact' }).checks;
+    has(lines, '上回合漏过 9 只：木制瑞印 ×8（不攻击，无法被阻挡，需要2次伤害击倒）、萨卡兹大剑手 ×1（萨卡兹雇佣兵，拥有较高攻击力和较高法术抗性）');
+  });
+});
