@@ -742,6 +742,38 @@ function benchSingles(obs, data) {
 }
 
 /**
+ * The Final Assault in numbers, on the round before it and its own prep: the leader's armour, the shared pool
+ * (bloodPoint[difficulty] × the players alive, server/match/gamedata.js bossPoolShareOf) and the overtime clock
+ * (config bossOvertimeAfter / bossOvertimeDrainPerSec), with the damage per second that empties the pool before it.
+ */
+function assaultPreview(obs, data, pub) {
+  const bossRound = Number(pub.bossRound);
+  const round = Number(pub.round);
+  if (!Number.isFinite(bossRound) || !Number.isFinite(round) || round < bossRound - 1 || round > bossRound) return null;
+  const record = data.bosses?.[pub.bossId];
+  const mode = obj(data.config?.modes?.[pub.modeId]);
+  const per = obj(record?.bloodPoint)[pub.difficulty ?? mode.difficulty];
+  if (!record || !Number.isFinite(per)) return null;
+  const scale = { ...obj(data.config?.bossHpScale), ...obj(mode.bossHpScale) };
+  const pick = (key, fallback) => (Number.isFinite(scale[key]) && scale[key] > 0 ? scale[key] : fallback);
+  const full = Math.max(1, Math.floor(pick('aliveFull', 4)));
+  const alive = Math.min(full, list(obs.players).filter((p) => p.alive !== false).length || full);
+  const solo = mode.type === 'SINGLE';
+  const perPlayer = scale.perPlayer !== false;
+  const share = solo ? pick('solo', 1) : perPlayer ? pick('coop', 1) * alive : pick('coop', 1);
+  const pool = Math.round(per * share);
+  const stats = obj(data.enemies?.[record.enemyKey]?.stats);
+  const armour = [Number.isFinite(stats.def) ? `防御 ${stats.def}` : '', Number.isFinite(stats.res) ? `法抗 ${stats.res}` : ''].filter(Boolean).join('、');
+  const after = Number.isFinite(data.config?.bossOvertimeAfter) ? data.config.bossOvertimeAfter : 150;
+  const drain = Number.isFinite(data.config?.bossOvertimeDrainPerSec) ? data.config.bossOvertimeDrainPerSec : 1;
+  const sizing = solo || !perPlayer ? `血池 ${pool}` : `血池 ${per} × 存活玩家 ${alive} 人 = ${pool}`;
+  // The merged LP is Σ LP of the players alive when the fight starts.
+  const lp = list(obs.players).filter((p) => p.alive !== false).reduce((sum, p) => sum + (Number(p.lp) || 0), 0);
+  const team = lp > 0 ? `（现在合计 ${lp}）` : '';
+  return `第 ${bossRound} 回合最终攻势：领袖 ${record.name ?? pub.bossId}${armour ? `（${armour}）` : ''}，${sizing}；开打 ${after} 秒后加时，团队生命每秒 −${drain}${team}；${after} 秒内打空血池要每秒 ${Math.ceil(pool / after)} 伤害`;
+}
+
+/**
  * What a player reads off the prep screen at a glance: a greyed-out bond, a pair waiting for its third copy, a piece
  * facing away from the road, unspent funds. The lines state facts from the observation and the data files; every
  * choice stays with the agent. Line order is the order of work, so a long list keeps what comes first.
@@ -772,6 +804,8 @@ export function prepChecks(obs, data, pub) {
     const ratio = hp > 0 ? `，本回合敌人总生命是它的 ${Number((hp / dealt).toFixed(1))} 倍` : '';
     lines.push(`上回合总输出 ${dealt}${split ? `（${split}）` : ''}${ratio}`);
   }
+  const assault = assaultPreview(obs, data, pub);
+  if (assault) lines.push(assault);
   if (obs.reward_offer) lines.push('晋升奖励待领取');
   const funds = Number(obs.me.funds) || 0;
   const keeps = list(data.config?.economy?.leftoverFundsKeptByBands).includes(obs.me.band);

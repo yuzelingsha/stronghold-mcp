@@ -117,7 +117,7 @@ export function registerTools(server, client, { env = process.env, gameData = ga
 
   server.registerTool('stronghold_state', {
     title: 'Read Stronghold state',
-    description: 'Read the raw server frames received by this real player session, including room.state, m.public, m.private, m.field, battle frames, and queued events. stronghold_observe renders the same frames for deciding a turn.',
+    description: 'Read the raw server frames received by this real player session, including room.state, m.public, m.private, m.field, battle frames, and queued events (tens of thousands of characters; for debugging). stronghold_observe renders the same frames for deciding a turn, a boss fight included: battle.live carries the boss pool, the damage so far by player, team LP and the overtime clock.',
     inputSchema: z.object({ includeRecent: z.boolean().optional() }),
   }, async ({ includeRecent }) => result(client.snapshot(includeRecent !== false)));
 

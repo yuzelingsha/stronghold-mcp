@@ -269,3 +269,27 @@ describe('checks', () => {
     for (const line of lines) assert.doesNotMatch(line, /应该|建议|不要/);
   });
 });
+
+describe('the Final Assault preview', () => {
+  const data = {
+    ...DATA,
+    bosses: { boss_1: { bossId: 'boss_1', name: '假想敌：胄', enemyKey: 'leader_e', bloodPoint: { HARD: 1800000, ABYSS: 3600000 } } },
+    enemies: { ...DATA.enemies, leader_e: { name: '假想敌：胄', stats: { maxHp: 1, def: 1000, res: 25 } } },
+    config: { ...DATA.config, bossOvertimeAfter: 150, bossOvertimeDrainPerSec: 1, bossHpScale: { perPlayer: true, coop: 1, aliveFull: 4 }, modes: { mode_m: { difficulty: 'ABYSS' } } },
+  };
+  const seats = [
+    { playerId: 'a', alive: true, lp: 20 }, { playerId: 'b', alive: true, lp: 12 },
+    { playerId: 'c', alive: false, lp: 0 }, { playerId: 'd', alive: false, lp: 0 },
+  ];
+  const at = (round) => observation(state({ pub: { round, bossRound: 14, bossId: 'boss_1', players: seats } }), data, { env: {}, detail: 'compact' }).checks;
+  const line = '第 14 回合最终攻势：领袖 假想敌：胄（防御 1000、法抗 25），血池 3600000 × 存活玩家 2 人 = 7200000；开打 150 秒后加时，团队生命每秒 −1（现在合计 32）；150 秒内打空血池要每秒 48000 伤害';
+
+  it('shows on the round before the boss and on the boss round', () => {
+    has(at(13), line);
+    has(at(14), line);
+  });
+
+  it('stays off earlier rounds', () => {
+    assert.ok(!at(12).some((l) => l.includes('最终攻势')));
+  });
+});
