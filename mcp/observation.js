@@ -34,7 +34,7 @@
  * STRONGHOLD_FIELD_REGION="r0,r1,c0,c1" for a layout it does not describe.
  */
 
-import { EMOTES, EMOTE_REPLIES } from './guide-notes.js';
+import { EMOTES, EMOTE_REPLIES, LAYER_REFERENCE } from './guide-notes.js';
 
 /** The game's own `GEO.FIELD` — the seat's deployable board region (r0, r1, c0, c1). */
 export const DEFAULT_FIELD_REGION = Object.freeze([9, 12, 2, 10]);
@@ -69,6 +69,56 @@ export function secondsLeft(deadline, serverNow) {
 
 function bondName(data, bondId) {
   return data.bonds?.[bondId]?.name || orNull(bondId);
+}
+
+const PLACEHOLDER = /\{(\d{1,2})(?::([^{}]{1,12}))?\}/g;
+
+/** A number in a card's own format: '0%' is a rounded percent, '0.0' one decimal (public/js/ui/richText.js formatPlaceholder). */
+function cardNumber(value, fmt = '0') {
+  const pct = fmt.endsWith('%');
+  const core = pct ? fmt.slice(0, -1) : fmt;
+  const dot = core.indexOf('.');
+  const n = (pct ? value * 100 : value).toFixed(dot >= 0 ? Math.min(4, core.length - dot - 1) : 0);
+  const clean = Number(n) === 0 ? n.replace('-', '') : n;
+  return pct ? `${clean}%` : clean;
+}
+
+/** What one more layer adds, two decimals at most, so a 0.9% step keeps its decimal. */
+function layerStep(value, fmt = '0') {
+  const pct = fmt.endsWith('%');
+  return `+${Number((pct ? value * 100 : value).toFixed(2))}${pct ? '%' : ''}`;
+}
+
+/**
+ * A bond's layer-dependent numbers at its current layers, as the game's bond card shows them (public/js/ui/richText.js
+ * formatBondEffect: {i:fmt} = bb[base] + bb[perStack] × layers, a chance stops at 100%). `effect` holds the lines of
+ * effectDesc that carry such a number; a line gated on a head count (<在场N名…>) joins once `count` reaches N.
+ * `per_layer` is what one more layer adds to each number.
+ */
+export function bondEffect(record, layers, count) {
+  const params = list(record?.effectDescParams).filter((p) => isObject(p) && Number.isInteger(p.index));
+  if (!params.length) return null;
+  const bb = obj(record.bb);
+  const at = Math.max(0, Number(layers) || 0);
+  const values = [];
+  const formats = [];
+  const steps = [];
+  for (const p of params) {
+    const base = Number(bb[p.base]) || 0;
+    const per = Number(bb[p.perStack]) || 0;
+    const chance = /prob/i.test(`${p.base}|${p.perStack}`);
+    values[p.index] = chance ? Math.max(0, Math.min(1, base + per * at)) : base + per * at;
+    formats[p.index] = typeof p.format === 'string' ? p.format : '0';
+    if (per) steps.push(layerStep(per, formats[p.index]));
+  }
+  const lines = String(record.effectDesc ?? '').split('\n').filter((line) => {
+    if (!line.match(PLACEHOLDER)) return false;
+    const gate = line.match(/^<在场(\d+)名/);
+    return !gate || (Number(count) || 0) >= Number(gate[1]);
+  });
+  if (!lines.length) return null;
+  const fill = (line) => line.replace(PLACEHOLDER, (whole, idx, fmt) => (values[idx] == null ? whole : cardNumber(values[idx], formats[idx] || fmt || '0')));
+  return { effect: lines.map(fill).join('；'), per_layer: steps.join('、') };
 }
 
 /**
@@ -164,7 +214,15 @@ function pieceInfo(data, kind, id, rangeOf = statedRange) {
     return { id, name: orNull(raw?.name), desc: raw ? raw.desc || raw.effectName || '' : null, token: true, range: orNull(statedRange(raw)) };
   }
   const raw = kind === 'item' ? data.items?.[id] : null;
-  return { id, name: orNull(raw?.name), tier: orNull(raw?.tier), golden: orNull(raw?.isGolden), desc: raw ? raw.desc || raw.effectName || '' : null };
+  return {
+    id,
+    name: orNull(raw?.name),
+    tier: orNull(raw?.tier),
+    golden: orNull(raw?.isGolden),
+    desc: raw ? raw.desc || raw.effectName || '' : null,
+    // How it is used: a MAGIC item is dragged onto a field tile (g.art), every other item goes onto a piece (g.equip).
+    use: raw ? (raw.itemType === 'MAGIC' ? 'g.art' : 'g.equip') : null,
+  };
 }
 
 /**
@@ -585,8 +643,47 @@ function wavePreview(data, rawList, scale = null) {
   });
 }
 
-const MAX_CHECKS = 14;
+const MAX_CHECKS = 16;
+/** Items in the bench described one per line; the rest are named together. */
+const ITEM_LINES = 2;
 const multiplier = (value) => Number(value.toFixed(2));
+
+/** Triggers that fire once, when a piece is bought or sold: on the board such a clause adds nothing more. */
+const ONE_SHOT = new Set(['获得时', '售出时']);
+
+/**
+ * What a piece on the board keeps stacking, or null: a clause of its 特质 raises 层数 on a trigger that repeats
+ * (休整期结束时, 战斗中, 刷新时, …). A <获得时> stacker paid out when it was bought. A clause for 已激活的【X】 feeds only
+ * an active X; the result names those bonds, and is empty for a clause that feeds whichever bond it reaches.
+ */
+function layerFeed(piece, activeNames) {
+  const text = String(piece?.trait ?? '');
+  const clauses = [...text.matchAll(/<([^>]+)>([^<]*)/g)].map(([, tag, body]) => [tag, body]);
+  if (!clauses.length) clauses.push(['', text]);
+  let feeds = null;
+  for (const [tag, body] of clauses) {
+    if (ONE_SHOT.has(tag) || !/层数/.test(body) || !/\+/.test(body)) continue;
+    const named = body.match(/已激活的((?:【[^】]+】)+)/);
+    if (!named) { feeds ??= []; continue; }
+    const live = [...named[1].matchAll(/【([^】]+)】/g)].map((m) => m[1]).filter((name) => activeNames.has(name));
+    if (live.length) feeds = [...new Set([...(feeds ?? []), ...live])];
+  }
+  return feeds;
+}
+
+/** A bond's first effect line without the card's "（受层数影响…）" note, with what one more layer adds. */
+function headline(bond) {
+  const first = String(bond.effect).split('；')[0].replace(/（受层数影响[^）]*）/g, '');
+  const step = String(bond.per_layer ?? '').split('、')[0];
+  return step ? `${first}（每层${step}）` : first;
+}
+
+/** The built-in AI's top bond at the latest reference round this round has reached, or null before the first. */
+function layerReference(round) {
+  const now = Number(round);
+  if (!Number.isFinite(now)) return null;
+  return LAYER_REFERENCE.filter(([r]) => r <= now).at(-1) ?? null;
+}
 
 /** How many copies of an operator merge into its elite (mcp/guide.js tutorialContext reads the same two settings). */
 function mergeNeed(data, record) {
@@ -644,6 +741,20 @@ export function prepChecks(obs, data, pub) {
   if (funds > 0 && !keeps) lines.push(`资金 ${funds}，休整期结束时清零，买入或刷新用完（刷新 ${obs.me.refresh_price ?? 1} 资金一次）`);
 
   const live = obs.bonds.filter((b) => !b.off && !b.disabled_this_match);
+  const onBoard = obs.board.filter(isChess);
+  const stacked = live.filter((b) => b.active).sort((a, b) => (Number(b.layers) || 0) - (Number(a.layers) || 0));
+  if (stacked.length) {
+    const shown = stacked.slice(0, 2).map((b) => `【${b.bond}】${Number(b.layers) || 0} 层${b.effect ? `：${headline(b)}` : ''}`);
+    const ref = layerReference(pub.round);
+    lines.push(`叠层 ${shown.join('；')}${ref ? `（内置 AI 第 ${ref[0]} 回合最高盟约 ${ref[1]} 层）` : ''}`);
+  }
+  const activeNames = new Set(live.filter((b) => b.active).map((b) => b.bond));
+  const feedOf = new Map(onBoard.map((piece) => [piece, layerFeed(piece, activeNames)]));
+  if (onBoard.length) {
+    const stackers = [...new Map(onBoard.filter((piece) => feedOf.get(piece)).map((piece) => [piece.name, piece])).values()];
+    const named = (piece) => (feedOf.get(piece).length ? `${piece.name}（${feedOf.get(piece).join('、')}）` : piece.name);
+    lines.push(`场上叠层干员 ${stackers.length} 名${stackers.length ? `：${stackers.slice(0, 5).map(named).join('、')}` : ''}`);
+  }
   for (const b of live) {
     if (b.active || !(b.layers > 0)) continue;
     const need = list(b.thresholds)[0];
@@ -651,7 +762,6 @@ export function prepChecks(obs, data, pub) {
     lines.push(`【${b.bond}】${people}，未激活，累积 ${b.layers} 层当前不生效`);
   }
 
-  const onBoard = obs.board.filter(isChess);
   const copiesOnBoard = new Map();
   for (const piece of onBoard) copiesOnBoard.set(baseOf(data, piece.id), [...(copiesOnBoard.get(baseOf(data, piece.id)) ?? []), piece]);
   for (const copies of copiesOnBoard.values()) {
@@ -688,6 +798,14 @@ export function prepChecks(obs, data, pub) {
     if (slot) lines.push(`商店第 ${slot.slot} 格 ${slot.name} 使【${b.bond}】达到 ${next} 人${priced(slot)}`);
   }
 
+  // Pieces the layers pass by: every bond of theirs is inactive and their trait adds no layers while they stand there.
+  const activeIds = new Set(live.filter((b) => b.active).map((b) => b.id));
+  const eliteBondOn = live.some((b) => b.active && data.bonds?.[b.id]?.countMode === 'BOARD_ALL_CHESS');
+  const bystanders = onBoard.filter((piece) => !feedOf.get(piece) && !(eliteBondOn && isElite(data, piece))
+    && !bondsOf(data, piece.id).some((id) => activeIds.has(id)));
+  const idleNames = [...new Set(bystanders.map((piece) => piece.name))];
+  if (idleNames.length) lines.push(`场上 ${idleNames.slice(0, 4).join('、')}：所属盟约都未激活，在场时特质不加层`);
+
   // A boss field is laid out differently from the seat's own lanes.
   const road = new Set(list(obs.field?.lanes).flatMap((lane) => list(lane.tiles)).map(([r, c]) => `${r},${c}`));
   const bossBoard = pub.bossRound != null && Number(pub.round) >= Number(pub.bossRound);
@@ -708,11 +826,29 @@ export function prepChecks(obs, data, pub) {
   const room = (Number(obs.me.deploy_cap) || 0) - (Number(obs.me.deploy_count) || 0);
   if (room > 0) lines.push(`场上 ${obs.me.deploy_count ?? 0}/${obs.me.deploy_cap}，还能上 ${room} 名`);
   const gear = obs.hand.filter((piece) => piece.kind === 'item');
-  if (gear.length) lines.push(`整备区有 ${gear.length} 件装备待穿戴：${gear.slice(0, 3).map((piece) => piece.name ?? piece.id).join('、')}`);
+  for (const piece of gear.slice(0, ITEM_LINES)) {
+    const desc = String(piece.desc ?? '').split('\n')[0];
+    lines.push(`整备区道具 ${piece.name ?? piece.id}（${piece.use ?? 'g.equip'} 生效）${desc ? `：${desc.length > 60 ? `${desc.slice(0, 60)}…` : desc}` : ''}`);
+  }
+  if (gear.length > ITEM_LINES) lines.push(`整备区另有 ${gear.length - ITEM_LINES} 件道具：${gear.slice(ITEM_LINES).map((piece) => piece.name ?? piece.id).join('、')}`);
   const singles = benchSingles(obs, data);
   if (singles >= BENCH_SINGLES) lines.push(`整备区有 ${singles} 张单张干员，卖出价 ${sellPriceOf(data)} 资金`);
   if (obs.hand_free === 0) lines.push('整备区已满，买入前先卖出或上场');
   return lines.slice(0, MAX_CHECKS);
+}
+
+/** How many messages one observation carries at most. */
+export const MESSAGE_LIMIT = 12;
+
+/**
+ * The messages an observation carries: this round's and the previous round's, the newest MESSAGE_LIMIT of them. A toast
+ * or an emote is on screen for a moment; the client keeps 50 for `stronghold_state`, and every observe would otherwise
+ * carry all 50 into the agent's context again.
+ */
+function recentMessages(messages, round) {
+  const now = Number(round);
+  const kept = list(messages).filter((m) => round == null || !Number.isFinite(now) || m?.round == null || Number(m.round) >= now - 1);
+  return kept.slice(-MESSAGE_LIMIT);
 }
 
 /**
@@ -760,6 +896,8 @@ export function observation(state, data = {}, { env = process.env, detail = 'ful
     disabled_this_match: disabled.has(bond.bondId),
     partial_pool: drawn.has(bond.bondId),
     off: orNull(bond.off),
+    // The bond card's numbers at these layers: what the layers are worth right now.
+    ...bondEffect(data.bonds?.[bond.bondId], bond.layers, bond.count),
   }));
 
   const players = list(pub.players).filter(isObject).map((player) => ({
@@ -837,7 +975,7 @@ export function observation(state, data = {}, { env = process.env, detail = 'ful
     effects: effectsView(priv.effects),
     next_enemies: wavePreview(data, priv.nextEnemies, scale),
     players,
-    messages: list(state?.messages).map((entry) => messageView(entry, pub, myId)),
+    messages: recentMessages(state?.messages, pub.round).map((entry) => messageView(entry, pub, myId)),
     field: field(data, pub.stageId, fieldRegion(env)),
   };
   if (scale) obs.enemy_scale = scale;
@@ -926,7 +1064,7 @@ function compactBattle(battle) {
  */
 function compactObservation(obs, data, rangeOf) {
   const catalog = {};
-  const staticKeys = new Set(['name', 'tier', 'prof', 'pos', 'hp', 'atk', 'def', 'res', 'block', 'hit_fly', 'dmg', 'cost', 'bonds', 'trait', 'desc', 'token', 'range', 'skill']);
+  const staticKeys = new Set(['name', 'tier', 'prof', 'pos', 'hp', 'atk', 'def', 'res', 'block', 'hit_fly', 'dmg', 'cost', 'bonds', 'trait', 'desc', 'use', 'token', 'range', 'skill']);
   const instance = (area) => (piece) => {
     if (piece.empty) return piece;
     catalog[`${piece.kind}:${piece.id}`] = pruned(pieceInfo(data, piece.kind, piece.id, rangeOf), PIECE_DEFAULTS);

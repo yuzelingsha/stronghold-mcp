@@ -152,7 +152,7 @@ describe('checks', () => {
     has(lines, '【坚守】2/3 人，未激活，累积 80 层当前不生效');
     has(lines, '【独行】2 人，未激活，累积 5 层当前不生效');
     assert.equal(lines.filter((line) => line.includes('绝技')).length, 0);
-    assert.equal(lines.filter((line) => line.includes('迅捷')).length, 0);
+    assert.equal(lines.filter((line) => line.includes('迅捷') && line.includes('未激活')).length, 0);
   });
 
   it('counts copies of one operator once, elites included', () => {
@@ -206,8 +206,8 @@ describe('checks', () => {
     const lines = checks(state({ priv: { board } }));
     has(lines, '角峰 站在敌人路线之外，阻挡不到地面敌人');
     has(lines, '能天使 的攻击范围覆盖 0 格敌人路线');
-    assert.ok(!lines.some((line) => line.includes('华法琳')), 'a healer covers allies');
-    assert.ok(!lines.some((line) => line.includes('三名')), 'it covers the road');
+    assert.ok(!lines.some((line) => line.includes('华法琳 的攻击范围')), 'a healer covers allies');
+    assert.ok(!lines.some((line) => line.includes('三名 的攻击范围')), 'it covers the road');
   });
 
   it('leaves the boss field to the player', () => {
@@ -223,7 +223,7 @@ describe('checks', () => {
     const hand = [{ uid: 7, kind: 'item', id: 'sword', items: [] }];
     const lines = checks(state({ priv: { deployCount: 1, deployCap: 8, funds: 4, hand } }));
     has(lines, '场上 1/8，还能上 7 名');
-    has(lines, '整备区有 1 件装备待穿戴：重刃');
+    has(lines, '整备区道具 重刃（g.equip 生效）');
     has(lines, '整备区已满，买入前先卖出或上场');
     has(lines, '资金 4，休整期结束时清零，买入或刷新用完（刷新 1 资金一次）');
   });
@@ -248,7 +248,7 @@ describe('checks', () => {
   it('stays short, keeping the first lines', () => {
     const bonds = Array.from({ length: 20 }, (_, i) => ({ bondId: `b${i}`, count: 1, active: false, tier: 0, layers: 3 }));
     const lines = checks(state({ priv: { bonds, funds: 3 } }));
-    assert.equal(lines.length, 14);
+    assert.equal(lines.length, 16);
   });
 
   it('works without the data files', () => {

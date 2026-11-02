@@ -77,6 +77,12 @@ export const EMOTE_MOMENTS = Object.freeze([
 ]);
 
 /**
+ * The built-in AI's highest bond, in layers, by round (ABYSS, 4 seats; server/match/bot.js measured with the real
+ * engine). method.build quotes it and observe's checks set the seat's own top bond beside it.
+ */
+export const LAYER_REFERENCE = Object.freeze([[5, 8], [8, 23], [10, 36], [12, 69], [13, 85]]);
+
+/**
  * Chapters, in reading order. `summary` says what a chapter covers and goes into the server's static instructions;
  * `lines(c)` receives the context built by guide.js (`tutorialContext`).
  */
@@ -125,7 +131,7 @@ export const CHAPTERS = Object.freeze([
   {
     id: 'tutorial.pieces',
     title: '干员、整备区与装备',
-    summary: '整备区与场上人数、就绪条件、合成精锐、晋升奖励、装备',
+    summary: '整备区与场上人数、就绪条件、合成精锐、晋升奖励、装备与道具的用法',
     source: 'server/match/player/acquire.js:83-120,202-217, server/match/player/round.js:24-26, server/match/player/views.js:74, server/match/player/items.js, server/match/bondsMeta.js:8-9',
     lines: (c) => [
       `整备区（hand）${c.benchSize}格，临时整备区（temp）${c.tempSize}格，场上至多 me.deploy_cap 名干员（默认${c.deployCap}）。g.move 把干员放上场、换位置、转朝向或撤回整备区。`,
@@ -133,6 +139,8 @@ export const CHAPTERS = Object.freeze([
       `同一干员凑齐${c.mergeCount}个普通版时自动合成精锐${c.mergeExceptions ? `（${c.mergeExceptions}）` : ''}，原来的装备回到整备区。`,
       `每次合成精锐获得一次晋升奖励（reward_offer）：从${c.reward.count}名“调度中心等级+${c.reward.tierOffset}阶”（至多${c.reward.maxTier}阶）的干员里免费选1名（g.reward { idx }）。奖励一直保留到领取，待领取时也可以就绪。`,
       `每名干员至多装备${c.equipPerChess}件（g.equip）。${c.itemMergeCount}件同名装备自动合成一件更强的装备。装备可以卸下（g.unequip）或销毁（g.destroy，返还${c.itemDestroyRefund}资金）。`,
+      '道具买入后放在整备区，占一个格子，装上或用掉才生效。catalog 里道具的 use 是用法：g.equip 装到一名干员身上，g.art 放到场上的一个格子。',
+      '写着“装备时销毁”的道具装上即生效，随后消失，装给任意一名干员都行。写着“每回合”的收益从生效的那一回合开始累计。',
       '变形同构体与带盟约的装备装在同一名干员身上时，这名干员获得那件装备的盟约。',
       'catalog 的 cost 是部署费用，trait 是特质（卡面文字）。',
     ],
@@ -140,12 +148,13 @@ export const CHAPTERS = Object.freeze([
   {
     id: 'tutorial.bonds',
     title: '盟约与层数',
-    summary: '人数计法、激活档位、层数、特质的触发时机与位置用语',
+    summary: '人数计法、激活档位、层数换算成加成的公式、特质的触发时机与位置用语',
     source: 'server/match/bondsMeta.js:4-27, server/sim/content/garrisons/meta.js:14-15,40,172-185, server/sim/content/garrisons/battle.js:6-9,137-150, server/sim/Battle.js:105, server/match/match/settle.js:20',
     lines: (c) => [
       `人数按不同干员计：同一干员的普通版和精锐版算1名。${c.countModes.BOARD_AND_DECK ? `${c.countModes.BOARD_AND_DECK}计算场上和整备区的干员；` : ''}${c.countModes.BOARD_ALL_CHESS ? `${c.countModes.BOARD_ALL_CHESS}按场上全部精锐干员计，同名精锐分别计数；` : ''}其余盟约计算场上的干员。`,
       ...c.specialCounting,
       '人数达到 thresholds 的档位即激活（tier = 已达到的档位数）。盟约效果写着“受层数影响”时，层数越高效果越强。',
+      '“受层数影响”的数值 = 基础值 + 每层值 × 层数，两个数在 bond.<bondId> 页的 params 里。observe 的 bonds[].effect 是当前层数下的数值，per_layer 是每多 1 层增加的量。',
       'setup.partial_pool_bonds 是本局抽中的盟约：全部盟约都在这份名单里的干员离开卡池（setup.banned_chess），带有其他盟约的成员留在卡池。这些盟约照常激活、照常叠层。',
       'setup.disabled_bonds 是本模式关闭的盟约，这些盟约整局保持未激活。',
       '层数整局累积保留；盟约激活时按当前层数生效。',
@@ -242,7 +251,7 @@ export const CHAPTERS = Object.freeze([
   {
     id: 'method.build',
     title: '怎么定盟约路线',
-    summary: '选策略看 lp、路线的三个部分、选主盟约的依据、叠层的节奏、装备分配',
+    summary: '选策略看 lp、路线的三个部分、选主盟约的依据、叠层的节奏、评价干员、装备分配',
     source: 'server/match/bot.js bondPlan, itemTarget; server/match/bondsMeta.js; server/match/player/acquire.js:61',
     lines: (c) => [
       `选策略先看 lp：单回合至多扣 ${c.lpCap} 点生命值，lp 决定能承受几个失守的回合，活到最终攻势才能打领袖。模拟里 lp 45 比 lp 28 多活 1.1 回合，总伤害 +22%。可选的策略里优先选 lp 高的，再看效果。`,
@@ -251,7 +260,9 @@ export const CHAPTERS = Object.freeze([
       '盟约到达 thresholds 第一档才生效，层数在激活时才起作用。先保证激活，再堆层数。',
       '<获得时> 特质每次买入都触发，卖出再买会再次触发，代价是买价与卖价的差。<进入休整期时>、<休整期结束时>、<刷新时> 的特质在干员留在场上时持续产层。',
       '通用叠层手作用于“当前激活且层数最多”的盟约时，主盟约要先成为层数最多的那个。',
-      '层数参考（内置 AI 的最高盟约）：第 5 回合 8 层，第 8 回合 23 层，第 10 回合 36 层，第 12 回合 69 层，第 13 回合 85 层。',
+      `层数参考（内置 AI 的最高盟约）：${LAYER_REFERENCE.map(([round, layers]) => `第 ${round} 回合 ${layers} 层`).join('，')}。`,
+      '评价一名干员看它在盟约里的作用：凑人数（让盟约激活或升档）、叠层（特质写着“层数+n”）、吃层（随层数变强的输出）。catalog 的 hp、atk 是基础面板，盟约加成另算，observe 的 bonds[].effect 写出每条盟约当前的加成。',
+      '场上的位置留给主盟约成员、叠层干员和吃层的输出。checks 列出所属盟约都未激活、在场时加层为 0 的场上干员，买到更合适的干员时换下它们。',
       '输出装备给主力输出，生存装备给主力阻挡，盟约装备给该盟约的成员。合成精锐时装备回到整备区，要重新穿戴。',
     ],
   },

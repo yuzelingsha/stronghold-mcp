@@ -63,16 +63,21 @@ export function registerTools(server, client, { env = process.env, gameData = ga
   }, async ({ name }) => runSafe(() => client.connect(name || undefined)));
 
   const observeLog = createObservationLog();
+  // The last response this session handed out. A call without `since` in the same round and phase is answered against
+  // it: the agent already holds that response, and repeating the whole match after every action is what filled its
+  // context (a dsh match: 85 whole observations, 87% of all tool output).
+  let lastSent = null;
   server.registerTool('stronghold_observe', {
     title: 'Observe the match',
-    description: 'Read the match. Check connected and has_frames first. detail="compact" (default) puts static stats once per kind:id in catalog and leaves out default values (an absent flag is false); "full" joins stats onto every instance. Pass the rev of your last observe as since to receive only what changed: sections listed in unchanged are as in that response, removed keys are gone, catalog and messages hold only new entries. resync:true means since was unknown and this is the whole observation. includeField/includeReport=false omit those sections. During a match, tell the user in plain text what you are doing: one or two sentences in the same reply as your next tool call.',
+    description: 'Read the match. Check connected and has_frames first. detail="compact" (default) puts static stats once per kind:id in catalog and leaves out default values (an absent flag is false); "full" joins stats onto every instance. The first observe of each round and phase is the whole observation. A later one in the same round and phase returns only what changed since your previous observe (or since the rev you pass as since): sections listed in unchanged are as in that response, removed keys are gone, catalog and messages hold only new entries. resync:true asks for the whole observation, e.g. after your conversation was summarized; a response with resync:true is a whole observation. includeField/includeReport=false omit those sections. During a match, tell the user in plain text what you are doing: one or two sentences in the same reply as your next tool call.',
     inputSchema: z.object({
       detail: z.enum(['full', 'compact']).optional(),
       since: z.number().int().min(1).optional(),
+      resync: z.boolean().optional(),
       includeField: z.boolean().optional(),
       includeReport: z.boolean().optional(),
     }),
-  }, async ({ detail = 'compact', since, includeField, includeReport } = {}) => runSafe(async () => {
+  }, async ({ detail = 'compact', since, resync = false, includeField, includeReport } = {}) => runSafe(async () => {
     const state = client.snapshot(false);
     let data = {};
     let dataError = null;
@@ -80,7 +85,12 @@ export function registerTools(server, client, { env = process.env, gameData = ga
     const obs = observation(state, data, { env, detail, includeField, includeReport, attackRange: client.attackRangeGrid });
     // Without the data files the frames still render; only the joined names and stats are blank.
     if (dataError) obs.data_error = dataError;
-    return observeLog(obs, { signature: JSON.stringify([detail, includeField !== false, includeReport !== false]), since: since ?? null });
+    const signature = JSON.stringify([detail, includeField !== false, includeReport !== false]);
+    const samePhase = lastSent && lastSent.signature === signature && lastSent.round === obs.round && lastSent.phase === obs.phase;
+    const base = resync ? null : since ?? (samePhase ? lastSent.rev : null);
+    const out = observeLog(obs, { signature, since: base });
+    lastSent = { rev: out.rev, round: obs.round, phase: obs.phase, signature };
+    return out;
   }));
 
   server.registerTool('stronghold_lookup', {
