@@ -751,8 +751,8 @@ export function prepChecks(obs, data, pub) {
   const scale = obs.enemy_scale;
   const wave = list(obs.next_enemies);
   const total = wave.reduce((sum, e) => sum + (Number(e.count) || 0), 0);
+  const hp = wave.filter((e) => !e.boss).reduce((sum, e) => sum + (Number(e.count) || 0) * (e.hp_now ?? e.hp ?? 0), 0);
   if (total) {
-    const hp = wave.filter((e) => !e.boss).reduce((sum, e) => sum + (Number(e.count) || 0) * (e.hp_now ?? e.hp ?? 0), 0);
     const factors = scale ? `（生命×${multiplier(scale.hp)}，攻击×${multiplier(scale.atk)}，移速×${multiplier(scale.speed)}）` : '';
     const leader = wave.some((e) => e.boss) ? '，领袖另计' : '';
     const top = (key) => wave.filter((e) => !e.boss && Number(e[key]) > 0).sort((x, y) => Number(y[key]) - Number(x[key]))[0];
@@ -769,7 +769,8 @@ export function prepChecks(obs, data, pub) {
     const names = { phys: '物理', arts: '法术', true: '真实', elemental: '元素' };
     const split = typed > 0 ? Object.entries(names).filter(([key]) => Number(types[key]) > 0)
       .map(([key, name]) => `${name} ${Math.round((Number(types[key]) * 100) / typed)}%`).join('、') : '';
-    lines.push(`上回合总输出 ${dealt}${split ? `（${split}）` : ''}`);
+    const ratio = hp > 0 ? `，本回合敌人总生命是它的 ${Number((hp / dealt).toFixed(1))} 倍` : '';
+    lines.push(`上回合总输出 ${dealt}${split ? `（${split}）` : ''}${ratio}`);
   }
   if (obs.reward_offer) lines.push('晋升奖励待领取');
   const funds = Number(obs.me.funds) || 0;

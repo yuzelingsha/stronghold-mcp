@@ -146,6 +146,8 @@ describe('checks', () => {
     const s = state();
     s.battleSimulation = { mode: 'auto', ready: true, lastResult: { round: 2, report } };
     has(checks(s), '上回合总输出 400（物理 99%、法术 1%）');
+    s.last['m.private'].nextEnemies = [{ enemyKey: 'bug', count: 2 }];
+    has(checks(s), '上回合总输出 400（物理 99%、法术 1%），本回合敌人总生命是它的 21.5 倍');
   });
 
   it('flags layers lying idle in an inactive bond', () => {
