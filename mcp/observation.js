@@ -122,6 +122,30 @@ export function bondEffect(record, layers, count) {
 }
 
 /**
+ * A bond's next layer milestone (bonds.json layerMilestones) above `layers`: "every" fires at each multiple of its
+ * layer, "reach" and "first" once. The text is the card line that names that layer, without its <…> tag.
+ */
+export function nextMilestone(record, layers) {
+  const at = Math.max(0, Number(layers) || 0);
+  const lines = [...String(record?.effectDesc ?? '').split('\n'), ...String(record?.desc ?? '').split('\n')].map((l) => l.trim());
+  let best = null;
+  for (const m of list(record?.layerMilestones)) {
+    const step = Number(m?.layer);
+    if (!(step > 0)) continue;
+    const every = m.mode === 'every';
+    if (!every && at >= step) continue;
+    const layer = every ? (Math.floor(at / step) + 1) * step : step;
+    const line = lines.find((l) => new RegExp(`<[^>]*\\b${step}层[^>]*>`).test(l));
+    if (!line || (best && best.layer < layer)) continue;
+    const text = `${line.replace(/^<[^>]*>/, '').trim()}${every ? `（每 ${step} 层一次）` : ''}`;
+    // Two milestones on one layer (远见: every 10, and first at 80) both fire there.
+    best = best && best.layer === layer ? { layer, text: `${best.text}；${text}` } : { layer, text };
+  }
+  if (!best) return null;
+  return `${best.layer} 层（差 ${best.layer - at}）：${best.text}`;
+}
+
+/**
  * The two kinds of greyed bonds of a match, as the game's screens tell them apart (public/js/ui/gameLogic/bonds.js
  * disabledBondSets). `off` is the mode's static list: those bonds never activate. `drawn` is the per-match draw: only
  * operators whose every bond was drawn leave the pool, so a drawn bond still activates and stacks with its other members.
@@ -756,7 +780,7 @@ export function prepChecks(obs, data, pub) {
   const onBoard = obs.board.filter(isChess);
   const stacked = live.filter((b) => b.active).sort((a, b) => (Number(b.layers) || 0) - (Number(a.layers) || 0));
   if (stacked.length) {
-    const shown = stacked.slice(0, 2).map((b) => `【${b.bond}】${Number(b.layers) || 0} 层${b.effect ? `：${headline(b)}` : ''}`);
+    const shown = stacked.slice(0, 2).map((b) => `【${b.bond}】${Number(b.layers) || 0} 层${b.effect ? `：${headline(b)}` : ''}${b.milestone ? `，下一质变 ${b.milestone}` : ''}`);
     const ref = layerReference(pub.round);
     lines.push(`叠层 ${shown.join('；')}${ref ? `（内置 AI 第 ${ref[0]} 回合最高盟约 ${ref[1]} 层）` : ''}`);
   }
@@ -910,6 +934,7 @@ export function observation(state, data = {}, { env = process.env, detail = 'ful
     off: orNull(bond.off),
     // The bond card's numbers at these layers: what the layers are worth right now.
     ...bondEffect(data.bonds?.[bond.bondId], bond.layers, bond.count),
+    milestone: nextMilestone(data.bonds?.[bond.bondId], bond.layers),
   }));
 
   const players = list(pub.players).filter(isObject).map((player) => ({

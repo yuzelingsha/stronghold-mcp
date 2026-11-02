@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { bondEffect, MESSAGE_LIMIT, observation } from '../mcp/observation.js';
+import { bondEffect, MESSAGE_LIMIT, nextMilestone, observation } from '../mcp/observation.js';
 import { registerTools } from '../mcp/tools.js';
 
 /** Bond records cut down from the game's data/bonds.json (0.3.1): the effect text, its parameters and the numbers. */
@@ -91,6 +91,20 @@ describe('what the layers are worth', () => {
       assert.equal(yan.effect, '【炎】干员攻击力+68%（受层数影响）');
       assert.equal(yan.per_layer, '+0.9%');
     }
+  });
+});
+
+describe('layer milestones', () => {
+  const VICTORIA = { name: '维多利亚', effectDesc: '携带装备的【维多利亚】干员伤害提升\n<每叠加25层>获得一件带有随机特殊效果的维式重锤', layerMilestones: [{ layer: 25, mode: 'every' }] };
+  const SWIFT40 = { name: '迅捷', effectDesc: 'x\n<达到40层>所有干员技能结束时有等概率额外回复15点技力', layerMilestones: [{ layer: 40, mode: 'reach' }] };
+  const VISI = { name: '远见', effectDesc: '<每叠加10层>获得一次2资金', desc: '<首次达到80层>所有【远见】干员购买价格永久-1资金', layerMilestones: [{ layer: 10, mode: 'every' }, { layer: 80, mode: 'first' }] };
+
+  it('names the next layer that changes something, and how far it is', () => {
+    assert.equal(nextMilestone(VICTORIA, 51), '75 层（差 24）：获得一件带有随机特殊效果的维式重锤（每 25 层一次）');
+    assert.equal(nextMilestone(SWIFT40, 28), '40 层（差 12）：所有干员技能结束时有等概率额外回复15点技力');
+    assert.equal(nextMilestone(SWIFT40, 40), null);
+    assert.equal(nextMilestone(VISI, 73), '80 层（差 7）：获得一次2资金（每 10 层一次）；所有【远见】干员购买价格永久-1资金');
+    assert.equal(nextMilestone(YAN, 30), null);
   });
 });
 

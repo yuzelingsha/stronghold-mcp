@@ -154,7 +154,7 @@ export const CHAPTERS = Object.freeze([
       `人数按不同干员计：同一干员的普通版和精锐版算1名。${c.countModes.BOARD_AND_DECK ? `${c.countModes.BOARD_AND_DECK}计算场上和整备区的干员；` : ''}${c.countModes.BOARD_ALL_CHESS ? `${c.countModes.BOARD_ALL_CHESS}按场上全部精锐干员计，同名精锐分别计数；` : ''}其余盟约计算场上的干员。`,
       ...c.specialCounting,
       '人数达到 thresholds 的档位即激活（tier = 已达到的档位数）。盟约效果写着“受层数影响”时，层数越高效果越强。',
-      '“受层数影响”的数值 = 基础值 + 每层值 × 层数，两个数在 bond.<bondId> 页的 params 里。observe 的 bonds[].effect 是当前层数下的数值，per_layer 是每多 1 层增加的量。',
+      '“受层数影响”的数值 = 基础值 + 每层值 × 层数，两个数在 bond.<bondId> 页的 params 里。observe 的 bonds[].effect 是当前层数下的数值，per_layer 是每多 1 层增加的量，milestone 是下一个层数里程碑：在第几层、还差几层、到时发生什么。',
       'setup.partial_pool_bonds 是本局抽中的盟约：全部盟约都在这份名单里的干员离开卡池（setup.banned_chess），带有其他盟约的成员留在卡池。这些盟约照常激活、照常叠层。',
       'setup.disabled_bonds 是本模式关闭的盟约，这些盟约整局保持未激活。',
       '层数整局累积保留；盟约激活时按当前层数生效。',
