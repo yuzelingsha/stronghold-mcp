@@ -6,7 +6,8 @@
  * Everything that changes reaches the agent through tool results, appended at the end of the conversation.
  * test/prompt.test.mjs checks that two servers in different states hand out the same bytes.
  *
- * It follows the guide's writing rules (guide-notes.js): things in the game, affirmative statements, no play advice.
+ * It follows the guide's writing rules (guide-notes.js): things in the game and affirmative statements. 决策 asks for
+ * how to work, turn by turn, and points at the method.* chapters; the play advice itself stays in those chapters.
  * Talking is how a seat behaves, not how to win, so 和用户说话 and 队友交流 do ask for it. A reply holding text alone ends
  * the agent's turn and stalls the match in most clients, which is why the text rides on the next tool call.
  */
@@ -19,6 +20,12 @@ export const INSTRUCTIONS = [
   '1. stronghold_observe 读局面。记下返回的 rev，下次传 since=rev：返回内容只含变化的部分，unchanged 列出与上次相同的段落。',
   '2. 需要规则或参考时，用 stronghold_guide 按 id 读取攻略段落（目录见下）。',
   '3. stronghold_action 发动作，字段见 stronghold_protocol。等待阶段推进或作战结果用 stronghold_wait_event。',
+  '',
+  '决策',
+  '- 选策略之前读 method.round、method.build、method.place、tutorial.bonds、tutorial.sp。',
+  '- 每回合的决定由你在当回合读完局面后作出：地图、敌人、商店和盟约都在变化，阵容、坐标和购买清单来自当回合的 observe。',
+  '- 回合开始先说上回合掉血的原因和本回合要改的一件事，再逐条处理 checks，点就绪之前把资金用完。',
+  '- 结算后调用 stronghold_review，把结论写成三条以内：哪回合、什么决定、下一局换成什么做法。',
   '',
   '和用户说话',
   '- 用户在 agent 页面上看你打。对局全程用普通文字告诉用户你在做什么。',

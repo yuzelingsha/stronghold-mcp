@@ -101,6 +101,8 @@ export function attachCombatReport(battle, options = {}) {
     const leakedList = Array.isArray(pp.leaked) ? pp.leaked : [];
     const leaks = leakedList.length;
     const leakedEnemies = [...new Set(leakedList.map((l) => l?.enemyKey).filter(Boolean))].slice(0, 8);
+    const leakedByEnemy = {};
+    for (const key of leakedList.map((l) => l?.enemyKey).filter(Boolean)) leakedByEnemy[key] = (leakedByEnemy[key] ?? 0) + 1;
 
     // 3. Units summary
     const endMap = new Map();
@@ -137,6 +139,7 @@ export function attachCombatReport(battle, options = {}) {
       casualties,
       leaks,
       leaked_enemies: leakedEnemies,
+      leaked_by_enemy: leakedByEnemy,
       units,
     };
   }

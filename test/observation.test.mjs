@@ -13,6 +13,7 @@ const DATA = {
   bonds: { shield: { name: '坚守', thresholds: [2, 4], members: ['chess_a'] } },
   enemies: {},
   tokens: {},
+  config: { modes: { mode_off: { inactiveBondIds: ['shield'] } } },
   stages: {
     s1: {
       rows: Array.from({ length: 14 }, (_, r) => `row${r}`),
@@ -157,7 +158,7 @@ describe('observation', () => {
   it('renders the strategy draft the way the draft screen lists it', () => {
     const s = state();
     Object.assign(s.last['m.public'], {
-      phase: 'BAND_DRAFT', disabledBonds: ['shield'],
+      phase: 'BAND_DRAFT', modeId: 'mode_off', disabledBonds: ['shield'],
       draft: { order: ['p1', 'p2'], turn: 'p1', picks: { p2: 'band_b' }, skipsLeft: { p1: 1 }, untimed: true },
     });
     s.last['m.private'].playerId = 'p1';
@@ -318,7 +319,7 @@ describe('observation', () => {
   it('renders what the match drew', () => {
     const s = state();
     Object.assign(s.last['m.public'], {
-      lastRound: 14, bossRound: 14, hiddenRound: 15, factions: ['f1'], disabledBonds: ['shield'],
+      lastRound: 14, bossRound: 14, hiddenRound: 15, factions: ['f1'], modeId: 'mode_off', disabledBonds: ['shield'],
       bannedChess: ['chess_a', 'chess_a_b'], bossId: 'boss_1', hiddenBossId: null,
     });
     const data = { ...DATA, chess: { ...DATA.chess, chess_a_b: { name: '角峰' } }, bosses: { boss_1: { name: '假想敌', enemyKey: 'enemy_1' } } };
@@ -455,6 +456,16 @@ describe('MCP tools', () => {
     const compact = register({ STRONGHOLD_MCP_TOOLS: 'compact' });
     assert.equal(register({ STRONGHOLD_MCP_TOOLS: 'full' }).size, compact.size + ACTIONS.length);
     assert.ok(compact.has('stronghold_action') && compact.has('stronghold_observe'));
+  });
+
+  it('says what a player readying with funds left will lose', async () => {
+    const tools = new Map();
+    const client = { action: async () => ({ ok: true }), snapshot: () => ({ last: { 'm.private': { funds: 3, bandId: 'band_x' } } }) };
+    registerTools({ registerTool: (name, _meta, handler) => tools.set(name, handler) }, client, { env: {}, gameData: async () => ({}) });
+    const ready = await tools.get('stronghold_action')({ type: 'g.ready', fields: { ready: true } });
+    assert.equal(ready.structuredContent.funds_left, 3);
+    const undo = await tools.get('stronghold_action')({ type: 'g.ready', fields: { ready: false } });
+    assert.equal(undo.structuredContent.funds_left, undefined);
   });
 
   it('filters protocol descriptions and forwards observation projections', async () => {

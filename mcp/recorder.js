@@ -1,14 +1,18 @@
 /**
- * Local match log for post-match review.
+ * Match log for review: a `match` line, a `round` line per fight with the lineup that went in, a `battle` line per
+ * report this seat's runner produced, and a `result` line at the settlement.
  *
- * Off unless STRONGHOLD_RECORD_DIR is set; a public deployment leaves it unset. Each match gets one `.jsonl` file
- * there: a `match` line, a `round` line per fight with the lineup that went in, a `battle` line per report this
- * seat's runner produced, and a `result` line at the settlement.
+ * The latest match stays in memory on `client.matchLog`, for stronghold_review. STRONGHOLD_RECORD_DIR also appends every
+ * match to its own `.jsonl` file there; a public deployment leaves it unset.
  *
  * Every field is picked by name, so a line holds game ids and numbers. Player names and messages stay out: notes
  * written from these files last across matches, and another seat's text must not travel with them.
  *
  * Recording never gets in the way of play: a failed write lands in `client.recorder.error`.
+ *
+ * A training room runs a fight within one server tick, so the seat often never sees a frame with the battle phase. A
+ * round's line therefore comes from the last prep state as soon as anything shows the prep ended; a battle frame that
+ * does arrive writes the same line from the frames in hand.
  */
 import { randomBytes } from 'node:crypto';
 import { appendFileSync, mkdirSync } from 'node:fs';
@@ -66,6 +70,7 @@ function matchLine(client, frame) {
     hidden_round: orNull(frame.hiddenRound),
     factions: list(frame.factions),
     disabled_bonds: list(frame.disabledBonds),
+    drawn_disabled_bonds: list(frame.drawnDisabledBonds),
     banned_chess: list(frame.bannedChess),
     seat: orNull(client.last['m.private']?.seat),
   };
@@ -84,6 +89,7 @@ function roundLine(client, pub) {
     level: orNull(priv.shop?.level),
     band: orNull(priv.bandId),
     deploy_count: orNull(priv.deployCount),
+    deploy_cap: orNull(priv.deployCap),
     board: pieceLines(priv.board),
     hand: pieceLines(priv.hand),
     temp: pieceLines(priv.temp),
@@ -155,8 +161,15 @@ function resultLine(client, raw) {
 /** `2026-10-31T06:25:39.123Z` -> `20261031T062539Z`: the file names sort by start time. */
 const stamp = (ms) => new Date(ms).toISOString().replace(/[-:]|\.\d+/g, '');
 
+/** The battle a prep leads to, for a round line written without seeing that battle's frame. */
+function battlePhaseAfter(pub) {
+  if (pub.hiddenRound != null && pub.round === pub.hiddenRound) return 'HIDDEN_CORE';
+  if (pub.bossRound != null && pub.round === pub.bossRound) return 'FINAL_ASSAULT';
+  return 'COMBAT';
+}
+
 /**
- * Record this seat's matches, when the environment asks for it.
+ * Record this seat's matches: always the latest one in memory, and every one on disk when the environment asks for it.
  *
  * @param {import('./game-client.js').StrongholdClient} client
  * @param {{ env?: Record<string,string|undefined>, now?: () => number }} [options]
@@ -165,26 +178,35 @@ const stamp = (ms) => new Date(ms).toISOString().replace(/[-:]|\.\d+/g, '');
  */
 export function attachRecorder(client, { env = process.env, now = Date.now } = {}) {
   const configured = String(env.STRONGHOLD_RECORD_DIR ?? '').trim();
-  if (!configured) return null;
-  const dir = resolve(configured);
-  const status = client.recorder = { dir, match: null, file: null, records: 0, error: null };
-  /** The match being written; null between matches. `status` keeps naming the last one for a review. */
+  const dir = configured ? resolve(configured) : null;
+  const status = dir ? (client.recorder = { dir, match: null, file: null, records: 0, error: null }) : null;
+  /** The match being written; null between matches. `status` and `client.matchLog` keep the last one for a review. */
   let current = null;
   /** The seed of the last settlement written: a resync in the lobby replays its frame. */
   let settled = null;
+  /** The latest state of the prep under way: the round line it will become, and the funds left in it. */
+  let prep = null;
 
   function append(line) {
     const record = { v: RECORD_VERSION, match: current.id, at: new Date(now()).toISOString(), ...line };
-    appendFileSync(current.file, `${JSON.stringify(record)}\n`);
-    status.records += 1;
+    client.matchLog.lines.push(record);
+    if (!status) return;
+    // Memory holds the line whatever the disk does; lines that could not be written wait for the next attempt.
+    current.unwritten.push(record);
+    mkdirSync(dir, { recursive: true });
+    while (current.unwritten.length) {
+      appendFileSync(current.file, `${JSON.stringify(current.unwritten[0])}\n`);
+      current.unwritten.shift();
+      status.records += 1;
+    }
     status.error = null;
   }
 
   function open(frame) {
-    mkdirSync(dir, { recursive: true });
     const id = `${stamp(now())}-${randomBytes(3).toString('hex')}`;
-    current = { id, file: join(dir, `${id}.jsonl`), round: 0, seen: new Set() };
-    Object.assign(status, { match: id, file: current.file, records: 0 });
+    current = { id, file: dir ? join(dir, `${id}.jsonl`) : null, round: 0, seen: new Set(), unwritten: [] };
+    client.matchLog = { id, lines: [] };
+    if (status) Object.assign(status, { match: id, file: current.file, records: 0 });
     append(matchLine(client, frame));
   }
 
@@ -192,24 +214,50 @@ export function attachRecorder(client, { env = process.env, now = Date.now } = {
     try {
       handler(frame);
     } catch (error) {
-      status.error = error?.message ?? String(error);
-      console.error('[stronghold-mcp] match record failed:', status.error);
+      const message = error?.message ?? String(error);
+      if (status) status.error = message;
+      console.error('[stronghold-mcp] match record failed:', message);
     }
   };
+
+  function writeRound(line) {
+    const key = `${line.round}/${line.phase}`;
+    if (current.seen.has(key)) return;
+    current.seen.add(key);
+    current.round = line.round;
+    append(line);
+  }
+
+  /** The prep is over: its round goes into the log with the state it ended in. */
+  function closePrep() {
+    if (!prep || !current) return;
+    writeRound(prep.line);
+    prep = null;
+  }
 
   // The first battle opens the file, not the first frame: the setup can still be rerolled before it. A resync sends
   // m.public before m.private, into a cache the hello emptied, so either frame can be the one that completes a round.
   const recordRound = guarded(() => {
     const pub = client.last['m.public'];
-    if (!client.last['m.private'] || !BATTLE_PHASES.has(pub?.phase)) return;
+    const priv = client.last['m.private'];
+    if (!priv || !pub) return;
+    if (pub.phase === 'PREP') {
+      prep = { line: { ...roundLine(client, { ...pub, phase: battlePhaseAfter(pub) }), funds_left: orNull(priv.funds) } };
+      return;
+    }
     // A round going backwards is a new match, after one whose settlement never reached this seat.
     if (current && pub.round < current.round) current = null;
-    if (!current) open(pub);
-    const key = `${pub.round}/${pub.phase}`;
-    if (current.seen.has(key)) return;
-    current.seen.add(key);
-    current.round = pub.round;
-    append(roundLine(client, pub));
+    if (BATTLE_PHASES.has(pub.phase)) {
+      if (!current) open(pub);
+      const left = prep?.line.round === pub.round ? { funds_left: prep.line.funds_left } : {};
+      writeRound({ ...roundLine(client, pub), ...left });
+      prep = null;
+      return;
+    }
+    if (prep && !IDLE_PHASES.has(pub.phase)) {
+      if (!current) open(pub);
+      closePrep();
+    }
   });
   client.on('m.public', recordRound);
   client.on('m.private', recordRound);
@@ -219,7 +267,9 @@ export function attachRecorder(client, { env = process.env, now = Date.now } = {
   client.on('battle.report', guarded((battle) => {
     const pub = client.last['m.public'];
     if (!current && pub && !IDLE_PHASES.has(pub.phase)) open(pub);
-    if (current) append(battleLine(battle));
+    if (!current) return;
+    closePrep();
+    append(battleLine(battle));
   }));
 
   client.on('m.result', guarded((result) => {
@@ -228,9 +278,13 @@ export function attachRecorder(client, { env = process.env, now = Date.now } = {
     append(resultLine(client, result));
     settled = result.seed ?? null;
     current = null;
+    prep = null;
   }));
 
-  client.on('room.left', () => { current = null; });
+  client.on('room.left', () => {
+    current = null;
+    prep = null;
+  });
 
   return status;
 }

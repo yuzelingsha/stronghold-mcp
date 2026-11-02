@@ -9,7 +9,12 @@
  * Writing rules for anything an agent reads here:
  *   - state what exists in the game; name only things the data contains;
  *   - use affirmative statements;
- *   - explain mechanics, leave the choices to the player: no line-ups, no "good with", no priorities.
+ *   - tutorial.* explains mechanics and leaves the choices to the player: no line-ups, no "good with", no priorities.
+ *
+ * method.* is the second kind of chapter: how to decide, for any line-up. It may give an order of work and reference
+ * curves, and it stays general: no named line-up, no advice tied to one band or bond. Rules alone left an agent
+ * re-deriving the basics for 33 matches. Its reference numbers are the built-in AI's (server/match/bot.js LEVEL_TARGET,
+ * measured with the real engine), which reads the same frames a player gets and has no economy bonus.
  */
 
 /**
@@ -141,6 +146,8 @@ export const CHAPTERS = Object.freeze([
       `人数按不同干员计：同一干员的普通版和精锐版算1名。${c.countModes.BOARD_AND_DECK ? `${c.countModes.BOARD_AND_DECK}计算场上和整备区的干员；` : ''}${c.countModes.BOARD_ALL_CHESS ? `${c.countModes.BOARD_ALL_CHESS}按场上全部精锐干员计，同名精锐分别计数；` : ''}其余盟约计算场上的干员。`,
       ...c.specialCounting,
       '人数达到 thresholds 的档位即激活（tier = 已达到的档位数）。盟约效果写着“受层数影响”时，层数越高效果越强。',
+      'setup.partial_pool_bonds 是本局抽中的盟约：全部盟约都在这份名单里的干员离开卡池（setup.banned_chess），带有其他盟约的成员留在卡池。这些盟约照常激活、照常叠层。',
+      'setup.disabled_bonds 是本模式关闭的盟约，这些盟约整局保持未激活。',
       '层数整局累积保留；盟约激活时按当前层数生效。',
       '特质开头的尖括号是触发时机：<获得时>、<售出时>、<刷新时>、<进入休整期时>、<休整期结束时>、<战斗开始时>、<部署时>、<战斗中>、<被击倒时>。',
       '写“使已激活的【X】层数+n”的特质在盟约X激活时加层；写“无需激活盟约”的特质随时加层。',
@@ -176,14 +183,102 @@ export const CHAPTERS = Object.freeze([
     ],
   },
   {
+    id: 'tutorial.enemies',
+    title: '敌人强度',
+    summary: '每回合的敌人生命、攻击、移速倍率，领袖血池与加时',
+    source: 'data/config.json modes.*.enemyScale, bossHpScale, bossOvertimeAfter, data/bosses.json bloodPoint, server/match/gamedata.js baseEnemyScale, server/match/waves.js',
+    lines: (c) => [
+      '敌人的实际面板 = 记录里的面板 × 本回合倍率。catalog 的敌人记录是基础值；next_enemies 的 hp_now、atk_now 和 enemy_scale 是本回合实际值。',
+      ...(c.scale.hp ? [`本模式的倍率，格式“回合:倍率”。生命：${c.scale.hp}。攻击：${c.scale.atk}。移速：${c.scale.speed}。`] : []),
+      '领袖的血池按难度固定，倍率作用于护卫和其他敌人。',
+      ...(c.boss ? [`本局领袖 ${c.boss.name} 的血池是 ${c.boss.pool}${c.solo ? '' : ' × 战斗开始时存活的玩家数（至多4名）'}。所有玩家一起削减这个血池，结算的 bossDamage 是各自造成的部分。`] : []),
+      `最终攻势开打 ${c.overtimeAfter} 秒后进入加时，团队生命值每秒 −${c.overtimeDrain}。`,
+    ],
+  },
+  {
+    id: 'tutorial.sp',
+    title: '机变',
+    summary: '卡片种类、悬赏敌人如何加入作战、悬赏的资金',
+    source: 'server/match/choices.js cardView bountyCard, server/match/match/spDraft.js addBounty, server/match/waves.js bountyPlan, server/match/match/settle.js:40-60, data/choices.json',
+    lines: (c) => [
+      `${c.spRounds.length ? `本模式第 ${c.spRounds.join('、')} 回合有机变阶段。` : ''}${c.solo ? '独立模拟每次3张卡选1张。' : '同盟模拟每次6张卡，玩家按顺序各选1张。'}`,
+      'kind 为 item 的卡免费发放装备。kind 为 tactic 的卡作用于盟约层数、资金、刷新等；team 为 true 时全队生效。',
+      'kind 为 bounty 的是悬赏：把 enemy_key 指定的敌人加入自己接下来 rounds 场作战，每场 count 只，desc 写明了场次和资金。',
+      '悬赏敌人和本回合的敌人一起出场，吃本回合倍率，出现在 next_enemies 里，漏掉时同样扣生命值。卡面的 hp_now、atk_now 是抽卡当回合的实际值。',
+      '击倒悬赏敌人的玩家获得 coin 资金（联防中的队友也算）；payout 为 perfect 的悬赏在完美作战时发放。资金计入下一回合的休整期。',
+      '判断悬赏：比较敌人的 hp_now 与当前阵容的输出和对空能力，比较 coin 与漏掉时扣的生命值。stronghold_lookup 按 enemy_key 查技能和抗性。',
+    ],
+  },
+  {
     id: 'tutorial.draft',
     title: '策略',
     summary: '策略的生命值与效果、off_bonds、联机时的选择顺序',
     source: 'server/match/match/phases.js, public/js/screens/bandDraft.js, data/config.json bandDraft',
     lines: (c) => [
       '策略在开局选择，决定初始生命值（lp）和一个整局效果。band_draft.options 列出本模式可选的全部策略，stronghold_lookup 可查完整记录。',
-      'off_bonds 列出该策略依赖、且本局禁用的盟约；这类策略照常可选。',
+      'off_bonds 列出该策略依赖、且本模式关闭的盟约；这类策略照常可选。',
       ...(c.solo ? [] : [`联机时按随机顺序轮流选择，每个策略归先选的玩家（taken_by），每人可跳过${c.skips}次。`]),
+    ],
+  },
+  {
+    id: 'method.round',
+    title: '每回合怎么做决定',
+    summary: '读战报、处理 checks、把资金用完、花钱的先后、升本节奏、留对子',
+    source: 'server/match/bot.js header, LEVEL_TARGET, MERGE_HIT; docs/META.md §1.5',
+    lines: () => [
+      '每回合都重新判断：地图、敌人、商店和盟约都在变化，阵容、坐标和购买清单来自当回合的局面。',
+      '第一步，读 battle.report：leaked_by_enemy 是漏掉的敌人和数量，casualties 是倒下的干员，units 是各自的输出。说出上回合掉血的原因和本回合要改的一件事。',
+      '第二步，处理 checks 的每一条：领取晋升奖励，穿戴装备，把整备区里更强的干员换上场。',
+      '第三步，花钱，这是每回合最重要的决定。内置 AI 的模拟（ABYSS，4 座，每组 60 局）：每回合多 2 资金，这名玩家的总伤害 +66%，多活 0.9 回合；每回合多 4 资金，总伤害 +98%。收入几乎全部来自回合收入，所以省下的浪费就是收入，越早的资金越值钱。',
+      '花钱的先后顺序：能合成精锐的最后一张，使主盟约到达下一档的成员，阵容缺的角色（阻挡、对空、治疗），能换下场上最弱干员的更高阶干员，最后把余钱全部用来刷新。',
+      '场上站满后，买入价 3～5 资金，卖出价 1 资金：买来只放在整备区的单张干员是浪费。资金留给合成和刷新。内置 AI 每局刷新 12～20 次；关掉刷新，总伤害 -20%。',
+      '点就绪之前把资金用到 0。',
+      '升本参考（内置 AI 的节奏）：第 3–4 回合 2 级，第 5 回合 3 级，第 7 回合 4 级，第 10 回合 5 级，第 12 回合 6 级。升级价每回合 −1，临近目标回合升级最省钱。',
+      '前 4 回合把场上站到 8 名，低阶干员之后可以卖掉换新。',
+      '精锐的属性约 +25%，技能升到 7 级，并附带一次高一阶的免费选人。整备区优先留成对的干员，至多留 4 对。',
+      '休整期结束时资金清零：买完升完的余钱用来刷新找最后一张。资金差一点时用冻结把它留到下一回合。',
+    ],
+  },
+  {
+    id: 'method.build',
+    title: '怎么定盟约路线',
+    summary: '选策略看 lp、路线的三个部分、选主盟约的依据、叠层的节奏、装备分配',
+    source: 'server/match/bot.js bondPlan, itemTarget; server/match/bondsMeta.js; server/match/player/acquire.js:61',
+    lines: (c) => [
+      `选策略先看 lp：单回合至多扣 ${c.lpCap} 点生命值，lp 决定能承受几个失守的回合，活到最终攻势才能打领袖。模拟里 lp 45 比 lp 28 多活 1.1 回合，总伤害 +22%。可选的策略里优先选 lp 高的，再看效果。`,
+      '一条盟约路线有三部分：凑够人数的成员，持续加层的叠层手，随层数变强的输出。bond.<bondId> 页列出这三类干员。',
+      '第 3–5 回合定下一个主盟约和一个副盟约。依据：已有的成员数，当前等级商店能出的成员数，已积累的层数，setup.banned_chess 离开卡池的干员。partial_pool 的盟约成员变少，照常激活，同样可选。定下后连续投入。',
+      '盟约到达 thresholds 第一档才生效，层数在激活时才起作用。先保证激活，再堆层数。',
+      '<获得时> 特质每次买入都触发，卖出再买会再次触发，代价是买价与卖价的差。<进入休整期时>、<休整期结束时>、<刷新时> 的特质在干员留在场上时持续产层。',
+      '通用叠层手作用于“当前激活且层数最多”的盟约时，主盟约要先成为层数最多的那个。',
+      '层数参考（内置 AI 的最高盟约）：第 5 回合 8 层，第 8 回合 23 层，第 10 回合 36 层，第 12 回合 69 层，第 13 回合 85 层。',
+      '输出装备给主力输出，生存装备给主力阻挡，盟约装备给该盟约的成员。合成精锐时装备回到整备区，要重新穿戴。',
+    ],
+  },
+  {
+    id: 'method.place',
+    title: '怎么站位',
+    summary: '用 field.lanes、range_tiles 和朝向规划站位',
+    source: 'server/match/bot.js planLayout, fieldModel, placeClass; docs/META.md §1.5',
+    lines: () => [
+      '站位按本局地图规划：field.lanes 的 tiles 是地面敌人走过的格子，从出发点排到 leak_tile，多条路线共有的格子所有地面敌人都会经过。',
+      '阻挡干员站在路线的格子上，block 是同时挡住的敌人数。阻挡位靠近 leak_tile 时，敌人走完全程才被挡住，输出的时间最长。',
+      '远程干员选择 range_tiles 覆盖路线格子最多的格子和朝向。放好后读 range_tiles 核对，checks 会列出覆盖为0的干员。',
+      '输出集中覆盖阻挡位和它前面的路线：敌人被挡住时承受的伤害最多。治疗干员的范围覆盖阻挡干员。',
+      '空中敌人越过阻挡，看 next_enemies 的 fly，用 hit_fly 为 true 的干员覆盖 leak_tile 附近。',
+      '根据 next_enemies 的 gate、at_s 和 hp_now 判断压力来自哪条路线、哪个时段。',
+    ],
+  },
+  {
+    id: 'method.review',
+    title: '怎么复盘',
+    summary: '回合内的归因、结算后用 stronghold_review 写结论',
+    source: 'mcp/review.js',
+    lines: () => [
+      '回合内归因：掉血时从总输出、范围覆盖、对空、阻挡四方面找原因，对照 battle.report 和 hp_now 找证据。',
+      '结算后调用 stronghold_review：turning_points 是掉血最多的回合，findings 是和参考曲线的差距，seats 是全队的结算。',
+      '结论写成三条以内，每条包含回合、当时的决定、下一局换成的做法。下一局开始时读上一局的结论，结束时判断它是否奏效。',
+      '评价一局看证据：结算的 victory、rounds_passed、bossDamage 和 stronghold_review 的数字。',
     ],
   },
 ]);

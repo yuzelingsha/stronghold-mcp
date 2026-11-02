@@ -122,13 +122,14 @@ describe('guide', () => {
   });
 
   it('lists the tutorial and the bond map during the draft, as a table of contents', () => {
-    const s = state('BAND_DRAFT', {}, { disabledBonds: ['kazimierzShip'] });
-    const pages = guideIndex(s, DATA);
+    const closed = { ...DATA, config: { ...DATA.config, modes: { ...DATA.config?.modes, mode_off: { inactiveBondIds: ['kazimierzShip'] } } } };
+    const s = state('BAND_DRAFT', {}, { modeId: 'mode_off', disabledBonds: ['kazimierzShip'] });
+    const pages = guideIndex(s, closed);
     assert.deepEqual(pages.map((p) => p.id), [...CHAPTERS.map((ch) => ch.id), 'bonds.overview']);
     assert.ok(pages.every((p) => Object.keys(p).join() === 'id,title'));
-    const { sections } = guideSections(s, DATA, ['bonds.overview']);
+    const { sections } = guideSections(s, closed, ['bonds.overview']);
     assert.deepEqual(sections[0].bonds.map((b) => b.id), ['egirShip', 'investShip']);
-    assert.deepEqual(guideIndex(s, DATA, 'bonds').map((p) => p.id), ['bonds.overview', 'bond.egirShip', 'bond.investShip', 'bonds.generic']);
+    assert.deepEqual(guideIndex(s, closed, 'bonds').map((p) => p.id), ['bonds.overview', 'bond.egirShip', 'bond.investShip', 'bonds.generic']);
     assert.deepEqual(guideIndex(s, DATA, 'bands').map((p) => p.id), ['band.band_mlynar']);
   });
 
@@ -149,6 +150,44 @@ describe('guide', () => {
     assert.doesNotMatch(text('tutorial.flow'), /联防/);
   });
 
+  it('quotes this mode\'s enemy multipliers and the leader\'s pool', () => {
+    const bossState = { last: { 'm.public': { modeId: 'mode_x', difficulty: 'HARD', lastRound: 3, bossId: 'boss_x' }, 'room.state': { mode: 'solo' } } };
+    const data = {
+      ...DATA,
+      bosses: { boss_x: { name: '假想敌', bloodPoint: { HARD: 1800000 } } },
+      config: { ...DATA.config, modes: { ...DATA.config?.modes, mode_x: { type: 'SINGLE', difficulty: 'HARD', lastRound: 3, enemyScale: { 1: { hp: 1, atk: 1, speed: 1 }, 2: { hp: 1, atk: 1, speed: 1 }, 3: { hp: 2, atk: 1.5, speed: 1 } } } } },
+    };
+    const [section] = guideSections(bossState, data, ['tutorial.enemies']).sections;
+    const text = section.text.join('\n');
+    assert.match(text, /生命：1–2:1、3:2/);
+    assert.match(text, /假想敌 的血池是 1800000/);
+  });
+
+  it('keeps a bond drawn for this match readable, and hides a bond the mode closes', () => {
+    const data = { ...DATA, config: { ...DATA.config, modes: { ...DATA.config?.modes, mode_off: { inactiveBondIds: ['kazimierzShip'] } } } };
+    const s = state('PREP', {}, { modeId: 'mode_off', disabledBonds: ['egirShip', 'kazimierzShip'], drawnDisabledBonds: ['egirShip'] });
+    const { sections, unknown } = guideSections(s, data, ['bond.egirShip', 'bond.kazimierzShip', 'bonds.overview']);
+    assert.deepEqual(unknown, ['bond.kazimierzShip']);
+    assert.deepEqual(sections.map((x) => x.id), ['bond.egirShip', 'bonds.overview']);
+    const overview = sections[1].bonds;
+    assert.equal(overview.find((b) => b.id === 'egirShip').partial_pool, true);
+    assert.equal(overview.some((b) => b.id === 'kazimierzShip'), false);
+  });
+
+  it('serves the method chapters by id', () => {
+    const { sections, unknown } = guideSections(state(), DATA, ['method.round', 'method.build', 'method.place', 'method.review']);
+    assert.deepEqual(unknown, []);
+    assert.equal(sections.length, 4);
+    for (const section of sections) assert.ok(section.text.length > 2, section.id);
+  });
+
+  it('keeps method chapters general: no operator, band or bond by name', () => {
+    const names = [...Object.values(DATA.chess ?? {}), ...Object.values(DATA.bands ?? {}), ...Object.values(DATA.bonds ?? {})].map((r) => r?.name).filter(Boolean);
+    for (const ch of CHAPTERS.filter((c) => c.id.startsWith('method.'))) {
+      for (const line of ch.lines({})) for (const name of names) assert.ok(!line.includes(name), `${name} in ${ch.id}`);
+    }
+  });
+
   it('writes the tutorial as affirmative statements about things in the data', () => {
     const { sections } = guideSections(state('BAND_DRAFT', {}, { modeId: 'm1', difficulty: 'NORMAL' }), DATA, TUTORIAL);
     assert.equal(sections.length, CHAPTERS.length);
@@ -166,8 +205,12 @@ describe('guide', () => {
     };
     const ids = guideIndex(state('PREP', priv), DATA).map((p) => p.id);
     assert.deepEqual(ids, ['band.band_mlynar', 'bond.kazimierzShip', 'bond.egirShip', 'bonds.generic']);
-    const off = guideIndex(state('PREP', priv, { disabledBonds: ['egirShip'] }), DATA).map((p) => p.id);
+    const closed = { ...DATA, config: { ...DATA.config, modes: { ...DATA.config?.modes, mode_off: { inactiveBondIds: ['egirShip'] } } } };
+    const off = guideIndex(state('PREP', priv, { modeId: 'mode_off', disabledBonds: ['egirShip'] }), closed).map((p) => p.id);
     assert.ok(!off.includes('bond.egirShip'));
+    // a bond drawn for this match stays on the list: it still activates
+    const drawn = guideIndex(state('PREP', priv, { disabledBonds: ['egirShip'], drawnDisabledBonds: ['egirShip'] }), DATA).map((p) => p.id);
+    assert.ok(drawn.includes('bond.egirShip'));
     const [kaz] = guideSections(state('PREP', priv), DATA, ['bond.kazimierzShip']).sections;
     assert.ok(kaz.mechanics && kaz.count_mode === 'BOARD');
   });

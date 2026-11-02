@@ -211,9 +211,50 @@ describe('the match recorder', () => {
     client.feed(pub({ phase: 'PREP' }));
     client.emit('battle.report', { round: 1, kind: 'normal', reason: 'cleared', report: { leaks: 0 } });
     client.feed(pub());
-    assert.deepEqual(lines(status.file).map((line) => line.type), ['match', 'battle', 'round']);
+    assert.deepEqual(lines(status.file).map((line) => line.type), ['match', 'round', 'battle']);
     assert.equal(lines(status.file)[0].stage, 'stage_a');
     assert.equal(files(dir).length, 1);
+  });
+
+  it('records a round whose battle frame never reaches the seat', () => {
+    const dir = emptyDir();
+    const { client, status } = seat(dir);
+    client.feed(pub({ phase: 'PREP' }), { ...priv, funds: 7 });
+    client.emit('battle.report', { round: 1, kind: 'normal', reason: 'cleared', report: { leaks: 0 } });
+    client.feed(pub({ phase: 'SETTLE' }), pub({ phase: 'PREP', round: 2 }), { ...priv, funds: 2 }, pub({ phase: 'SETTLE', round: 2 }));
+    const written = lines(status.file);
+    assert.deepEqual(written.map((line) => line.type), ['match', 'round', 'battle', 'round']);
+    assert.deepEqual(written.filter((line) => line.type === 'round').map((line) => [line.round, line.phase, line.funds_left]), [[1, 'COMBAT', 7], [2, 'COMBAT', 2]]);
+  });
+
+  it('writes one round line when the battle frame follows the end of prep', () => {
+    const dir = emptyDir();
+    const { client, status } = seat(dir);
+    client.feed(pub({ phase: 'PREP' }), { ...priv, funds: 4 }, pub());
+    const rounds = lines(status.file).filter((line) => line.type === 'round');
+    assert.equal(rounds.length, 1);
+    assert.equal(rounds[0].funds_left, 4);
+  });
+
+  it('names the boss fight of a round written from its prep', () => {
+    const dir = emptyDir();
+    const { client, status } = seat(dir);
+    client.feed(pub({ phase: 'PREP', round: 14 }));
+    client.emit('battle.report', { round: 14, report: {} });
+    assert.equal(lines(status.file).find((line) => line.type === 'round').phase, 'FINAL_ASSAULT');
+  });
+
+  it('keeps the latest match in memory without a directory', () => {
+    const { client, status } = seat();
+    assert.equal(status, null);
+    client.feed(pub({ phase: 'PREP' }));
+    client.emit('battle.report', { round: 1, report: {} });
+    client.feed(result);
+    assert.deepEqual(client.matchLog.lines.map((line) => line.type), ['match', 'round', 'battle', 'result']);
+    const first = client.matchLog.id;
+    client.feed({ ...pub({ round: 1 }) });
+    assert.notEqual(client.matchLog.id, first);
+    assert.deepEqual(client.matchLog.lines.map((line) => line.type), ['match', 'round']);
   });
 
   it('drops a report that lands after the settlement', () => {
@@ -279,5 +320,8 @@ describe('the match recorder', () => {
     rmSync(blocked);
     client.feed(pub({ round: 2 }));
     assert.equal(status.error, null);
+    // nothing the failure held back is lost
+    assert.deepEqual(lines(status.file).map((line) => line.type).slice(0, 2), ['match', 'round']);
+    assert.equal(client.matchLog.lines[0].type, 'match');
   });
 });

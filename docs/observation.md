@@ -12,7 +12,7 @@ MCP 工具 `stronghold_observe` 默认 `detail:"compact"`：棋子和敌人的�
 棋子和出怪列表保留各自的动态字段，商店 `price` 优先采用服务端价格，`catalog` 中的 `price` 是静态基础价。
 敌人的服务端 `fly` 标志也优先于静态定义，所以出怪条目总带 `fly`。
 
-compact 不写出默认值：`null` 的字段、`golden/sold/frozen/elite/boss/counts_hand/disabled_this_match` 为 `false`、
+compact 不写出默认值：`null` 的字段、`golden/sold/frozen/elite/boss/bounty/counts_hand/disabled_this_match/partial_pool` 为 `false`、
 `count` 为 1、`items` 为空时都省略；`skill` 的 `sp_cost` / `init_sp` / `duration` 为 0 时省略；
 `me.deploy` 字符串省略（看 `deploy_count` / `deploy_cap`）；`reward_offer` / `personal_choice` / `setup_revision` 为空时省略，`messages` 没有内容时省略。`battle` 精简为 `mode`、`ready`、上一场结果 `last`、
 战斗进行中的 `live`、战报 `report`（不重复 `last` 已有的结果字段），以及出错时的 `error` / `declined` / `stale`。
@@ -63,6 +63,8 @@ compact 不写出默认值：`null` 的字段、`golden/sold/frozen/elite/boss/c
 | `room` | 服务端 | `room.state`，字段见下文 |
 | `reroll_vote` | 服务端 + 推导 | 重随投票进行中才出现：见下文 |
 | `setup` | 服务端 + 数据 | 本局抽到的内容：见下文 |
+| `enemy_scale` | 数据 | 本回合敌人的 `hp` / `atk` / `speed` 倍率，取自 `config.json` 当前模式的 `enemyScale`；领袖血池不受影响 |
+| `checks` | 推导 | 只在 `PREP` 阶段出现：见下文 |
 | `messages` | 服务端 | 弹出提示、滚动播报、表情：见下文 |
 | `comms` | 派生 | 联机有其他真人时才有：沉默回合数、等你回应的表情、队友是否在等你：见下文 |
 | `scouted` / `scouted_age_ms` | 服务端 + 数据 | 备战时最近一次侦察：见下文 |
@@ -114,7 +116,9 @@ observation 里的所有帧都是「**最后一次收到的**」。因此一个�
 |---|---|
 | `last_round` / `boss_round` / `hidden_round` | 总回合数、最终攻势回合、隐秘核心回合 |
 | `factions` | 本局敌人的派系 |
-| `disabled_bonds` / `banned_chess` | 本局禁用的盟约和干员（名称） |
+| `disabled_bonds` | 本模式关闭的盟约（`config.modes[modeId].inactiveBondIds`）：整局保持未激活，界面显示“本局禁用” |
+| `partial_pool_bonds` | 本局抽中的盟约（`m.public.drawnDisabledBonds`）：只移除全部盟约都被抽中的干员，这些盟约照常激活和叠层，界面显示“部分盟约所含干员阵容不完整” |
+| `banned_chess` | 因此离开卡池的干员（名称） |
 | `boss` / `hidden_boss` | `id`、`name`，`enemy` 是敌人记录的 key，可以传给 `stronghold_lookup` |
 
 ---
@@ -232,7 +236,8 @@ observation 里的所有帧都是「**最后一次收到的**」。因此一个�
 | `layers` | 服务端 | **实时层数** —— 叠层流派的核心观测量 |
 | `thresholds` | 数据 | `bonds.json` 的档位阈值 |
 | `counts_hand` | 服务端 | 是否把备战区（手牌）也算进 `count` |
-| `disabled_this_match` | 服务端 | 是否被本局禁用（`m.public.disabledBonds`） |
+| `disabled_this_match` | 数据 | 本模式关闭的盟约，整局保持未激活 |
+| `partial_pool` | 服务端 | 本局抽中的盟约，部分成员离开卡池，盟约照常生效 |
 | `off` | 服务端 | 本局禁用但自己有成员（显示为灰盘） |
 
 服务端只列出 `count > 0 || layers > 0 || active` 的盟约。**没列出来的就是 0。**
@@ -244,7 +249,7 @@ observation 里的所有帧都是「**最后一次收到的**」。因此一个�
 | 字段 | 来源 |
 |---|---|
 | `effects` | `m.private.effects`：`name` / `desc` / `counter` |
-| `next_enemies` | `m.private.nextEnemies`，每个出怪动作一条：`at_s`（时间）、`count`、`gate`、`elite`、`fly`、`boss`，再与 `enemies.json` 连接补上面板 |
+| `next_enemies` | `m.private.nextEnemies`，每个出怪动作一条：`at_s`（时间）、`count`、`gate`、`elite`、`fly`、`boss`、`bounty`（悬赏敌人），再与 `enemies.json` 连接补上面板。非领袖条目带 `hp_now` / `atk_now`：基础面板乘本回合倍率，这才是实战数值 |
 
 `fly` 按模拟的规则判断（`server/sim/units.js` `isFlying`）：`motion` 为 `FLY`，或带「近地悬浮」（`hover: true`，沿地面路线走）
 都算空中单位，一般不能被阻挡。只看 `isFlyEnemy` 会漏掉这两类，所以有数据记录时不采用出怪预告里按刷怪位给的 `fly`。
@@ -264,7 +269,7 @@ observation 里的所有帧都是「**最后一次收到的**」。因此一个�
 | `my_pick` / `skips_left` / `untimed` | 服务端 | 自己已选的策略、剩余跳过次数、是否不计时 |
 | `options[]` | 数据 | 本模式允许的**全部**策略（`modeTypeList` 含 SINGLE / MULTI），按 `sortId` 排序 |
 | `options[].lp` / `effect` / `desc` | 数据 | 初始生命值、效果名、说明 |
-| `options[].off_bonds` | 推导 | 策略依赖的盟约本局被禁用（界面上的「本局禁用」），仍可选 |
+| `options[].off_bonds` | 推导 | 策略依赖的盟约被本模式关闭（界面上的「本局禁用」），仍可选 |
 | `options[].taken_by` | 服务端 | 队友已选，不能再选 |
 
 用 `g.band { bandId }` 选择。
@@ -274,6 +279,31 @@ observation 里的所有帧都是「**最后一次收到的**」。因此一个�
 只在 `phase == "SP_DRAFT"` 时出现，来自 `m.public.sp`：`event` / `name` / `desc`、`my_turn` / `my_pick`，
 以及 `cards[]`（`idx` / `kind` / `id` / `name` / `tier` / `price` / `desc`，`sold_out`、`taken_by` 仅在成立时出现）。
 用 `g.choice { idx }`（不带 `choiceId`）选择。
+
+悬赏卡（`kind: "bounty"`）另带 `enemy_key` / `enemy`、`count`、`rounds`、`coin`、`payout`、`fly`、`def`、`res`，以及当回合的 `hp_now` / `atk_now`。战术卡带 `team`。
+
+---
+
+## `checks`（局面自检）
+
+休整期里人类扫一眼屏幕就能知道的事实，由现有字段和数据文件推导，一行一条，至多 14 条，按处理顺序排列。这一段只陈述事实，选择留给 agent。
+
+| 内容 | 触发条件 |
+|---|---|
+| 本回合敌人总数、总生命和倍率 | 有出怪预告。领袖不计入总生命 |
+| 上回合总输出 | 有上一场战报，和总生命对比 |
+| 晋升奖励待领取 | `reward_offer` 存在 |
+| 资金将在休整期结束时清零，写明刷新价 | `funds > 0`，且策略不保留余额 |
+| 盟约未激活，累积的层数当前不生效 | `layers > 0` 且未激活、未被禁用 |
+| 同名干员在场上多张，盟约按 1 人计 | 同一 `baseId` 至少 2 张；只含绝技类盟约的干员除外 |
+| 商店某格是合成精锐的最后一张 | 已有 `mergeCount - 1` 张普通版，资金不够时写明差额 |
+| 商店或整备区的干员能让盟约到达下一档 | 差 1 人，且这名干员还没计入；独行和绝技这类计数方式不同的盟约除外 |
+| 站在路线外的阻挡干员、攻击范围覆盖 0 格路线的干员 | 第 `boss_round` 回合之前；治疗干员除外 |
+| 空中敌人数量与场上可对空人数 | 有 `fly` 的敌人 |
+| 场上空位、待穿戴的装备、整备区已满 | 对应情况成立时 |
+| 整备区的单张干员数量和卖出价 | 至少 4 张普通干员在全队只有这一张 |
+
+`stronghold_action` 发 `g.ready` 时，如果资金将要清零，返回值带 `funds_left` 和 `note`。就绪可以撤回，所以这条提醒来得及。
 
 ---
 
@@ -360,7 +390,7 @@ observation 里的所有帧都是「**最后一次收到的**」。因此一个�
 | `axes` | 常量 | 坐标约定（`server/sim/dir.js`）：row 0 在屏幕最下方，`UP` = row+1；默认朝向 `RIGHT`（敌人来的方向） |
 | `deploy_melee` | 数据 | `deployTiles.normal.melee` |
 | `deploy_ranged_only` | 数据 | `deployTiles.normal.rangedOnly` |
-| `lanes` | 数据 | `groundPaths` 中起点落在本半场内的路线 |
+| `lanes` | 数据 | 起点落在本半场内的路线，`tiles` 优先取 `groundPathsWithDevices`（地图装置改变后的实际路线），没有时取 `groundPaths` |
 | `leak_tile` | 推导 | `[r0, c0]`，漏怪方向的角 |
 | `map_rows` | 数据 | 本半场那几行的地图，**从屏幕顶部往下**，每行 `"行号|字符串"`，字符下标就是列号 |
 
@@ -424,7 +454,7 @@ observation 里的所有帧都是「**最后一次收到的**」。因此一个�
 | `layer_gains` | 本场战斗通过干员特质实际增加的**盟约层数增量**（如 `{"kazimierzShip": 24}`） |
 | `damage_types` | 友方造成的伤害类型构成（`phys`, `arts`, `true`, `elemental`），用于检查面对高抗怪是否严重刮痧 |
 | `casualties` | 阵亡的友方干员与倒下时间（`name`, `time`, `reason`） |
-| `leaks` / `leaked_enemies` | 漏怪数量与敌人代号（用于判断是否缺乏对空、阻挡数不足） |
+| `leaks` / `leaked_enemies` / `leaked_by_enemy` | 漏怪数量、敌人代号、每种敌人漏掉的数量（用于判断是否缺乏对空、阻挡数不足） |
 | `units` | 场上干员的输出与生存摘要（`dmg`, `taken`, `heal`, `alive`），按伤害降序排列 |
 
 

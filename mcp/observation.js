@@ -13,7 +13,9 @@
  *   hand / temp / board             every piece, with its data and its tile; a deployed piece also lists the tiles it covers
  *   bonds                           every bond with its live layers, active tier and thresholds
  *   effects                         the counters and bounty effects this seat is holding
- *   next_enemies                    the coming wave, per spawn action
+ *   next_enemies                    the coming wave, per spawn action, with this round's real HP and ATK
+ *   enemy_scale                     this round's enemy multipliers
+ *   checks                          during prep: facts a player reads off the screen at a glance
  *   players                         every seat, for co-op awareness
  *   setup                           the match's draw: rounds, enemy factions, disabled bonds, banned operators, its bosses
  *   scouted                         during prep: the last player scouted with g.watch
@@ -67,6 +69,18 @@ export function secondsLeft(deadline, serverNow) {
 
 function bondName(data, bondId) {
   return data.bonds?.[bondId]?.name || orNull(bondId);
+}
+
+/**
+ * The two kinds of greyed bonds of a match, as the game's screens tell them apart (public/js/ui/gameLogic/bonds.js
+ * disabledBondSets). `off` is the mode's static list: those bonds never activate. `drawn` is the per-match draw: only
+ * operators whose every bond was drawn leave the pool, so a drawn bond still activates and stacks with its other members.
+ * m.public.disabledBonds holds both.
+ */
+export function disabledBondSets(data, pub) {
+  const off = new Set(list(data.config?.modes?.[pub.modeId]?.inactiveBondIds));
+  const source = Array.isArray(pub.drawnDisabledBonds) ? pub.drawnDisabledBonds : list(pub.disabledBonds);
+  return { off, drawn: new Set(source.filter((id) => !off.has(id))) };
 }
 
 /**
@@ -215,7 +229,10 @@ export function field(data, stageId, region = DEFAULT_FIELD_REGION) {
   const stage = obj(data.stages?.[stageId ?? '']);
   const deploy = obj(obj(stage.deployTiles).normal);
   const lanes = [];
-  for (const [name, lane] of Object.entries(obj(stage.groundPaths))) {
+  // Devices on the map reroute enemies: on some stages every lane differs from groundPaths (server/match/bot.js fieldModel).
+  const rerouted = obj(stage.groundPathsWithDevices);
+  for (const [name, plain] of Object.entries(obj(stage.groundPaths))) {
+    const lane = Array.isArray(rerouted[name]) && rerouted[name].length ? rerouted[name] : plain;
     if (!Array.isArray(lane) || !lane.length) continue;
     const start = lane[0];
     if (!Array.isArray(start) || start.length < 2) continue;
@@ -246,7 +263,7 @@ export function field(data, stageId, region = DEFAULT_FIELD_REGION) {
 export function bandDraft(data, pub, room, playerId) {
   const draft = obj(pub.draft);
   const modeType = room.mode === 'solo' ? 'SINGLE' : room.mode === 'coop' ? 'MULTI' : null;
-  const disabled = new Set(list(pub.disabledBonds));
+  const { off: disabled } = disabledBondSets(data, pub);
   const takenBy = new Map(Object.entries(obj(draft.picks)).map(([pid, bandId]) => [bandId, pid]));
   const options = Object.values(obj(data.bands))
     .filter((b) => isObject(b) && (!modeType || !Array.isArray(b.modeTypeList) || b.modeTypeList.includes(modeType)))
@@ -303,12 +320,14 @@ function setupView(data, pub) {
     const raw = data.bosses?.[id];
     return { id, name: orNull(raw?.name), enemy: orNull(raw?.enemyKey) };
   };
+  const { off, drawn } = disabledBondSets(data, pub);
   return {
     last_round: orNull(pub.lastRound),
     boss_round: orNull(pub.bossRound),
     hidden_round: orNull(pub.hiddenRound),
     factions: list(pub.factions),
-    disabled_bonds: list(pub.disabledBonds).map((id) => bondName(data, id)),
+    disabled_bonds: [...off].map((id) => bondName(data, id)),
+    partial_pool_bonds: [...drawn].map((id) => bondName(data, id)),
     // Both forms of an operator are banned together; the name says it once.
     banned_chess: [...new Set(list(pub.bannedChess).map((id) => data.chess?.[id]?.name ?? id))],
     boss: boss(pub.bossId),
@@ -336,7 +355,7 @@ function uniteResultView(raw) {
  * The last scout of a prep phase (m.field with `prep`): the player's board, bench, effects and coming wave, as the
  * scouting screen draws them. Units carry the sim's axes: `y` is the row, `x` the column.
  */
-function scoutedView(data, raw, pub, rangeOf) {
+function scoutedView(data, raw, pub, rangeOf, scale = null) {
   const playerId = String(raw.fieldId ?? '').replace(/^n:/, '') || null;
   const mapRows = list(obj(data.stages?.[raw.stageId ?? '']).rows);
   const units = list(raw.units).filter(isObject).map((unit) => {
@@ -351,7 +370,7 @@ function scoutedView(data, raw, pub, rangeOf) {
     fieldId: orNull(raw.fieldId),
     units,
     effects: effectsView(raw.effects),
-    next_enemies: wavePreview(data, raw.nextEnemies),
+    next_enemies: wavePreview(data, raw.nextEnemies, scale),
   };
 }
 
@@ -469,8 +488,25 @@ function roomView(room) {
   };
 }
 
+/** What a bounty card brings: the enemy it adds, at the strength it has this round, and what it pays. */
+function bountyInfo(data, card, scale) {
+  const info = enemyInfo(data, card.enemyKey);
+  return {
+    enemy_key: orNull(card.enemyKey),
+    enemy: orNull(info.name),
+    count: orNull(card.count),
+    rounds: orNull(card.rounds),
+    coin: orNull(card.coin),
+    payout: orNull(card.payout),
+    fly: orNull(info.fly),
+    ...nowStats(info, scale),
+    def: orNull(info.def),
+    res: orNull(info.res),
+  };
+}
+
 /** The 机变 draft (SP_DRAFT): the event, its cards, and whose turn it is. The server already names the cards. */
-export function spDraft(pub, playerId) {
+export function spDraft(pub, playerId, data = {}, scale = null) {
   const sp = obj(pub.sp);
   const takenBy = new Map(Object.entries(obj(sp.taken)).map(([pid, idx]) => [idx, pid]));
   return {
@@ -481,6 +517,8 @@ export function spDraft(pub, playerId) {
     my_pick: orNull(obj(sp.picks)[playerId]),
     cards: list(sp.cards).filter(isObject).map((card) => {
       const entry = { idx: orNull(card.idx), kind: orNull(card.kind), id: orNull(card.id), name: orNull(card.name), tier: orNull(card.tier), price: orNull(card.price), desc: orNull(card.desc) };
+      if (card.kind === 'bounty') Object.assign(entry, bountyInfo(data, card, scale));
+      if (card.kind === 'tactic' && card.team != null) entry.team = card.team;
       if (card.soldOut) entry.sold_out = true;
       const taker = takenBy.get(card.idx);
       if (taker && taker !== playerId) entry.taken_by = taker;
@@ -511,18 +549,170 @@ function enemyInfo(data, key) {
   };
 }
 
+/**
+ * The multipliers enemies spawn with this round (server/match/gamedata.js baseEnemyScale). A leader's pool stays out of
+ * them. The browser reads the same table from config.json.
+ */
+export function enemyScale(data, pub) {
+  const row = data.config?.modes?.[pub.modeId]?.enemyScale?.[String(pub.round)];
+  if (!isObject(row)) return null;
+  const factor = (value) => (Number.isFinite(value) ? value : 1);
+  return { hp: factor(row.hp), atk: factor(row.atk), speed: factor(row.speed) };
+}
+
+/** A record's HP and ATK at this round's strength. */
+function nowStats(info, scale) {
+  if (!scale || !Number.isFinite(info.hp)) return {};
+  return { hp_now: Math.round(info.hp * scale.hp), atk_now: Number.isFinite(info.atk) ? Math.round(info.atk * scale.atk) : null };
+}
+
 /** A wave preview, per spawn action. Every seat's preview has this shape, the scouted player's included. */
-function wavePreview(data, rawList) {
-  return list(rawList).filter(isObject).map((enemy) => ({
-    ...enemyInfo(data, enemy.enemyKey),
-    at_s: orNull(enemy.t),
-    count: orNull(enemy.count),
-    gate: orNull(enemy.gate),
-    elite: orNull(enemy.elite),
-    // The simulation decides from the record (motion / hover), whatever the preview's spawn slot says.
-    fly: data.enemies?.[enemy.enemyKey] ? airOf(data.enemies[enemy.enemyKey]) : orNull(enemy.fly),
-    boss: orNull(enemy.boss),
-  }));
+function wavePreview(data, rawList, scale = null) {
+  return list(rawList).filter(isObject).map((enemy) => {
+    const info = enemyInfo(data, enemy.enemyKey);
+    return {
+      ...info,
+      at_s: orNull(enemy.t),
+      count: orNull(enemy.count),
+      gate: orNull(enemy.gate),
+      elite: orNull(enemy.elite),
+      // The simulation decides from the record (motion / hover), whatever the preview's spawn slot says.
+      fly: data.enemies?.[enemy.enemyKey] ? airOf(data.enemies[enemy.enemyKey]) : orNull(enemy.fly),
+      boss: orNull(enemy.boss),
+      bounty: enemy.source === 'bounty',
+      ...(enemy.boss ? {} : nowStats(info, scale)),
+    };
+  });
+}
+
+const MAX_CHECKS = 14;
+const multiplier = (value) => Number(value.toFixed(2));
+
+/** How many copies of an operator merge into its elite (mcp/guide.js tutorialContext reads the same two settings). */
+function mergeNeed(data, record) {
+  const economy = obj(data.config?.economy);
+  if (Number.isInteger(record?.upgradeNum) && record.upgradeNum > 0) return record.upgradeNum;
+  const override = obj(economy.mergeCountOverrides)[record?.chessId];
+  if (Number.isInteger(override)) return override;
+  return Number.isInteger(economy.mergeCount) ? economy.mergeCount : 3;
+}
+
+/** One operator's normal and elite records share a base id. */
+const baseOf = (data, id) => data.chess?.[id]?.baseId ?? id;
+const isChess = (piece) => piece?.kind === 'chess' && !piece.empty;
+const isElite = (data, piece) => !!(piece.golden || data.chess?.[piece.id]?.isGolden);
+const bondsOf = (data, id) => list(data.chess?.[id]?.bonds);
+const downward = (bond) => bond?.thresholdTemplate === 'count_threshold_downward';
+
+/** Bench singles worth a line: a bench this full of one-offs is funds spent on nothing. */
+const BENCH_SINGLES = 4;
+
+const sellPriceOf = (data) => (Number.isFinite(data.config?.economy?.sellPrice) ? data.config.economy.sellPrice : 1);
+
+/** Normal operators on the bench with no second copy anywhere: each one is a purchase the board has yet to use. */
+function benchSingles(obs, data) {
+  const owned = new Map();
+  for (const piece of [...obs.board, ...obs.hand, ...obs.temp].filter(isChess)) {
+    if (isElite(data, piece)) continue;
+    const base = baseOf(data, piece.id);
+    owned.set(base, (owned.get(base) ?? 0) + (Number(piece.count) || 1));
+  }
+  return obs.hand.filter((piece) => isChess(piece) && !isElite(data, piece) && owned.get(baseOf(data, piece.id)) === 1).length;
+}
+
+/**
+ * What a player reads off the prep screen at a glance: a greyed-out bond, a pair waiting for its third copy, a piece
+ * facing away from the road, unspent funds. The lines state facts from the observation and the data files; every
+ * choice stays with the agent. Line order is the order of work, so a long list keeps what comes first.
+ */
+export function prepChecks(obs, data, pub) {
+  const lines = [];
+  const scale = obs.enemy_scale;
+  const wave = list(obs.next_enemies);
+  const total = wave.reduce((sum, e) => sum + (Number(e.count) || 0), 0);
+  if (total) {
+    const hp = wave.filter((e) => !e.boss).reduce((sum, e) => sum + (Number(e.count) || 0) * (e.hp_now ?? e.hp ?? 0), 0);
+    const factors = scale ? `（生命×${multiplier(scale.hp)}，攻击×${multiplier(scale.atk)}，移速×${multiplier(scale.speed)}）` : '';
+    const leader = wave.some((e) => e.boss) ? '，领袖另计' : '';
+    lines.push(`本回合敌人 ${total} 只，总生命约 ${hp}${leader}${factors}`);
+  }
+  const dealt = list(obs.battle?.report?.units).reduce((sum, unit) => sum + (Number(unit.dmg) || 0), 0);
+  if (dealt > 0) lines.push(`上回合总输出 ${dealt}`);
+  if (obs.reward_offer) lines.push('晋升奖励待领取');
+  const funds = Number(obs.me.funds) || 0;
+  const keeps = list(data.config?.economy?.leftoverFundsKeptByBands).includes(obs.me.band);
+  if (funds > 0 && !keeps) lines.push(`资金 ${funds}，休整期结束时清零，买入或刷新用完（刷新 ${obs.me.refresh_price ?? 1} 资金一次）`);
+
+  const live = obs.bonds.filter((b) => !b.off && !b.disabled_this_match);
+  for (const b of live) {
+    if (b.active || !(b.layers > 0)) continue;
+    const need = list(b.thresholds)[0];
+    const people = need != null && !downward(data.bonds?.[b.id]) ? `${b.count ?? 0}/${need} 人` : `${b.count ?? 0} 人`;
+    lines.push(`【${b.bond}】${people}，未激活，累积 ${b.layers} 层当前不生效`);
+  }
+
+  const onBoard = obs.board.filter(isChess);
+  const copiesOnBoard = new Map();
+  for (const piece of onBoard) copiesOnBoard.set(baseOf(data, piece.id), [...(copiesOnBoard.get(baseOf(data, piece.id)) ?? []), piece]);
+  for (const copies of copiesOnBoard.values()) {
+    if (copies.length < 2) continue;
+    const distinct = bondsOf(data, copies[0].id).some((id) => data.bonds?.[id]?.countMode !== 'BOARD_ALL_CHESS');
+    if (distinct) lines.push(`${copies[0].name} 场上 ${copies.length} 张，盟约按 1 人计`);
+  }
+
+  const forSale = obs.shop.filter((slot) => isChess(slot) && !slot.sold);
+  const priced = (slot) => (slot.price > funds ? `（差 ${slot.price - funds} 资金）` : '');
+  const owned = [...obs.board, ...obs.hand, ...obs.temp].filter(isChess);
+  const normalCopies = new Map();
+  for (const piece of owned) {
+    if (isElite(data, piece)) continue;
+    const base = baseOf(data, piece.id);
+    normalCopies.set(base, (normalCopies.get(base) ?? 0) + (Number(piece.count) || 1));
+  }
+  for (const [base, copies] of normalCopies) {
+    const slot = forSale.find((s) => baseOf(data, s.id) === base && !isElite(data, s));
+    if (slot && copies === mergeNeed(data, data.chess?.[base]) - 1) lines.push(`商店第 ${slot.slot} 格 ${slot.name} 是最后一张，合成精锐${priced(slot)}`);
+  }
+
+  for (const b of live) {
+    const record = data.bonds?.[b.id];
+    if (downward(record) || record?.countMode === 'BOARD_ALL_CHESS') continue;
+    const next = list(b.thresholds)[Number(b.tier) || 0];
+    if (next == null || next - (Number(b.count) || 0) !== 1) continue;
+    const hasBond = (piece) => bondsOf(data, piece.id).includes(b.id);
+    const counted = new Set(onBoard.filter(hasBond).map((piece) => baseOf(data, piece.id)));
+    const bench = obs.hand.filter((piece) => isChess(piece) && hasBond(piece) && !counted.has(baseOf(data, piece.id)));
+    if (record?.countMode === 'BOARD_AND_DECK') bench.forEach((piece) => counted.add(baseOf(data, piece.id)));
+    else if (bench.length) lines.push(`整备区 ${bench[0].name} 上场使【${b.bond}】达到 ${next} 人`);
+    const slot = forSale.find((s) => hasBond(s) && !counted.has(baseOf(data, s.id)));
+    if (slot) lines.push(`商店第 ${slot.slot} 格 ${slot.name} 使【${b.bond}】达到 ${next} 人${priced(slot)}`);
+  }
+
+  // A boss field is laid out differently from the seat's own lanes.
+  const road = new Set(list(obs.field?.lanes).flatMap((lane) => list(lane.tiles)).map(([r, c]) => `${r},${c}`));
+  const bossBoard = pub.bossRound != null && Number(pub.round) >= Number(pub.bossRound);
+  if (road.size && !bossBoard) {
+    for (const piece of onBoard) {
+      if (piece.pos === 'MELEE' && piece.block > 0 && !road.has(`${piece.row},${piece.col}`)) {
+        lines.push(`${piece.name} 站在敌人路线之外，阻挡不到地面敌人`);
+      } else if (piece.dmg !== 'heal' && data.chess?.[piece.id]?.attackKind !== 'none' && Array.isArray(piece.range_tiles)
+        && !piece.range_tiles.some(([r, c]) => road.has(`${r},${c}`))) {
+        lines.push(`${piece.name} 的攻击范围覆盖 0 格敌人路线`);
+      }
+    }
+  }
+
+  const airborne = wave.filter((e) => e.fly).reduce((sum, e) => sum + (Number(e.count) || 0), 0);
+  if (airborne) lines.push(`本回合空中敌人 ${airborne} 只，场上可对空 ${onBoard.filter((piece) => piece.hit_fly).length} 名`);
+
+  const room = (Number(obs.me.deploy_cap) || 0) - (Number(obs.me.deploy_count) || 0);
+  if (room > 0) lines.push(`场上 ${obs.me.deploy_count ?? 0}/${obs.me.deploy_cap}，还能上 ${room} 名`);
+  const gear = obs.hand.filter((piece) => piece.kind === 'item');
+  if (gear.length) lines.push(`整备区有 ${gear.length} 件装备待穿戴：${gear.slice(0, 3).map((piece) => piece.name ?? piece.id).join('、')}`);
+  const singles = benchSingles(obs, data);
+  if (singles >= BENCH_SINGLES) lines.push(`整备区有 ${singles} 张单张干员，卖出价 ${sellPriceOf(data)} 资金`);
+  if (obs.hand_free === 0) lines.push('整备区已满，买入前先卖出或上场');
+  return lines.slice(0, MAX_CHECKS);
 }
 
 /**
@@ -557,7 +747,7 @@ export function observation(state, data = {}, { env = process.env, detail = 'ful
     };
   });
 
-  const disabled = new Set(list(pub.disabledBonds));
+  const { off: disabled, drawn } = disabledBondSets(data, pub);
   const bonds = list(priv.bonds).filter(isObject).map((bond) => ({
     bond: bondName(data, bond.bondId),
     id: orNull(bond.bondId),
@@ -568,6 +758,7 @@ export function observation(state, data = {}, { env = process.env, detail = 'ful
     thresholds: list(data.bonds?.[bond.bondId]?.thresholds),
     counts_hand: orNull(bond.countsHand),
     disabled_this_match: disabled.has(bond.bondId),
+    partial_pool: drawn.has(bond.bondId),
     off: orNull(bond.off),
   }));
 
@@ -595,6 +786,7 @@ export function observation(state, data = {}, { env = process.env, detail = 'ful
   const mapRows = list(obj(data.stages?.[pub.stageId ?? '']).rows);
   const board = pieces(data, priv.board, rangeOf).map((piece) => withRangeTiles(piece, mapRows));
   const deployCap = priv.deployCap || 0;
+  const scale = enemyScale(data, pub);
   // serverNow is the clock when the frame left; the frame has aged since. A paused match's deadlines stand still.
   const frameAges = obj(connection.frameAgesMs);
   const serverClock = Number(pub.serverNow) + (pub.paused ? 0 : Number(frameAges['m.public']) || 0);
@@ -643,11 +835,13 @@ export function observation(state, data = {}, { env = process.env, detail = 'ful
     board_tiles: Object.fromEntries(board.filter((p) => p.row != null).map((p) => [`${p.row},${p.col}`, p.uid])),
     bonds,
     effects: effectsView(priv.effects),
-    next_enemies: wavePreview(data, priv.nextEnemies),
+    next_enemies: wavePreview(data, priv.nextEnemies, scale),
     players,
     messages: list(state?.messages).map((entry) => messageView(entry, pub, myId)),
     field: field(data, pub.stageId, fieldRegion(env)),
   };
+  if (scale) obs.enemy_scale = scale;
+  if (pub.phase === 'PREP') obs.checks = prepChecks(obs, data, pub);
   const comms = commsView(pub, state?.messages, state?.lastEmote, myId);
   if (comms) obs.comms = comms;
   if (connection.reconnecting) obs.reconnecting = true;
@@ -660,14 +854,14 @@ export function observation(state, data = {}, { env = process.env, detail = 'ful
   const overtime = secondsLeft(pub.overtimeAt, serverClock);
   if (overtime != null) obs.overtime_in_s = overtime;
   if (isObject(last['m.field']) && last['m.field'].prep) {
-    obs.scouted = scoutedView(data, last['m.field'], pub, rangeOf);
+    obs.scouted = scoutedView(data, last['m.field'], pub, rangeOf, scale);
     obs.scouted_age_ms = orNull(frameAges['m.field']);
   }
   // The frame stays in `last` after the room moves on; this phase is what says it still describes the match.
   if (pub.phase === 'RESULT' && isObject(last['m.result'])) obs.result = resultView(data, last['m.result']);
   if (isObject(pub.rerollVote)) obs.reroll_vote = rerollVote(pub, myId);
   if (pub.phase === 'BAND_DRAFT') obs.band_draft = bandDraft(data, pub, room, priv.playerId);
-  if (pub.phase === 'SP_DRAFT' && isObject(pub.sp)) obs.sp_draft = spDraft(pub, priv.playerId);
+  if (pub.phase === 'SP_DRAFT' && isObject(pub.sp)) obs.sp_draft = spDraft(pub, priv.playerId, data, scale);
 
   const battle = state?.battleSimulation;
   if (battle) {
@@ -701,11 +895,11 @@ function pruned(entry, defaults = {}) {
 const PIECE_DEFAULTS = Object.freeze({ golden: false, count: 1, items: [], sold: false, frozen: false });
 const SKILL_DEFAULTS = Object.freeze({ sp_cost: 0, init_sp: 0, duration: 0 });
 const ROOM_DEFAULTS = Object.freeze({ seats: [] });
-const SETUP_DEFAULTS = Object.freeze({ factions: [], disabled_bonds: [], banned_chess: [] });
+const SETUP_DEFAULTS = Object.freeze({ factions: [], disabled_bonds: [], partial_pool_bonds: [], banned_chess: [] });
 const SEAT_RESULT_DEFAULTS = Object.freeze({ left: false, bonds: [], lineup: [] });
 const LINEUP_DEFAULTS = Object.freeze({ golden: false, items: [] });
-const BOND_DEFAULTS = Object.freeze({ counts_hand: false, disabled_this_match: false });
-const ENEMY_DEFAULTS = Object.freeze({ elite: false, boss: false });
+const BOND_DEFAULTS = Object.freeze({ counts_hand: false, disabled_this_match: false, partial_pool: false });
+const ENEMY_DEFAULTS = Object.freeze({ elite: false, boss: false, bounty: false });
 
 /** The runner's status as a turn needs it: the last battle's outcome, a live one's progress, and any fault. */
 function compactBattle(battle) {
@@ -743,7 +937,7 @@ function compactObservation(obs, data, rangeOf) {
   const preview = (enemy) => {
     catalog[`enemy:${enemy.key}`] = pruned(enemyInfo(data, enemy.key));
     // `fly` stays on each entry: without the record it is the preview's own flag.
-    return pruned(Object.fromEntries(['key', 'at_s', 'count', 'gate', 'elite', 'fly', 'boss'].map((key) => [key, enemy[key]])), ENEMY_DEFAULTS);
+    return pruned(Object.fromEntries(['key', 'at_s', 'count', 'gate', 'elite', 'fly', 'boss', 'bounty', 'hp_now', 'atk_now'].map((key) => [key, enemy[key]])), ENEMY_DEFAULTS);
   };
   obs.next_enemies = obs.next_enemies.map(preview);
   if (obs.scouted) {

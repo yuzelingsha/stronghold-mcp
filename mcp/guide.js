@@ -16,6 +16,7 @@
  * agent can ask for a chapter directly. It explains the game; the choices stay with the agent.
  */
 import { BOND_MECHANICS, CHAPTERS, EMOTES } from './guide-notes.js';
+import { disabledBondSets } from './observation.js';
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const obj = (value) => (isObject(value) ? value : {});
@@ -185,12 +186,19 @@ const OVERVIEW_TITLE = '本局盟约';
 const GENERIC_TITLE = '给其他盟约加层的干员';
 
 /** The bonds this match uses, one line each. */
-function bondOverview(data, disabled) {
+function bondOverview(data, disabled, drawn = new Set()) {
   const bonds = Object.values(obj(data.bonds)).filter((b) => isObject(b) && !disabled.has(b.bondId));
   return {
     id: 'bonds.overview',
     title: OVERVIEW_TITLE,
-    bonds: bonds.map((b) => ({ id: b.bondId, name: b.name ?? null, core: !!b.isCore, thresholds: list(b.thresholds), count_mode: b.countMode ?? null })),
+    bonds: bonds.map((b) => ({
+      id: b.bondId,
+      name: b.name ?? null,
+      core: !!b.isCore,
+      thresholds: list(b.thresholds),
+      count_mode: b.countMode ?? null,
+      ...(drawn.has(b.bondId) ? { partial_pool: true } : {}),
+    })),
   };
 }
 
@@ -260,7 +268,7 @@ export function tutorialContext(data, pub, room = {}) {
   const mode = obj(obj(config.modes)[pub.modeId]);
   const economy = obj(config.economy);
   const solo = mode.type ? mode.type === 'SINGLE' : room.mode !== 'coop';
-  const disabled = new Set(list(pub.disabledBonds));
+  const { off: disabled } = disabledBondSets(data, pub);
   const bondName = (id) => data.bonds?.[id]?.name ?? id;
   const lastRound = num(pub.lastRound ?? mode.lastRound, 14);
   const bossRound = num(pub.bossRound ?? mode.bossRound, lastRound);
@@ -307,9 +315,18 @@ export function tutorialContext(data, pub, room = {}) {
   }
   const dp = obj(config.dp);
   const keep = list(economy.leftoverFundsKeptByBands).filter((id) => data.bands?.[id]).map((id) => `${data.bands[id].name}（${id}）`).join('、');
+  const scaleTable = obj(mode.enemyScale);
+  const scaleRow = (key) => ranges(Array.from({ length: lastRound }, (_, i) => i + 1)
+    .filter((r) => Number.isFinite(obj(scaleTable[r])[key])).map((r) => [r, obj(scaleTable[r])[key]]));
+  const bossRecord = data.bosses?.[pub.bossId];
+  const bossPool = obj(bossRecord?.bloodPoint)[difficulty];
 
   return {
     solo,
+    scale: { hp: scaleRow('hp'), atk: scaleRow('atk'), speed: scaleRow('speed') },
+    boss: Number.isFinite(bossPool) ? { name: bossRecord.name ?? pub.bossId, pool: bossPool } : null,
+    overtimeAfter: num(config.bossOvertimeAfter, 150),
+    overtimeDrain: num(config.bossOvertimeDrainPerSec, 1),
     lastRound,
     bossRound,
     hiddenRound,
@@ -350,14 +367,16 @@ function chapterSections(data, pub, room) {
   return CHAPTERS.map((ch) => ({ id: ch.id, title: ch.title, text: ch.lines(c).filter(Boolean), source: ch.source }));
 }
 
-function matchOf(state) {
+function matchOf(state, data) {
   const last = obj(state?.last);
   const pub = obj(last['m.public']);
+  const { off, drawn } = disabledBondSets(obj(data), pub);
   return {
     pub,
     priv: obj(last['m.private']),
     room: obj(last['room.state']),
-    disabled: new Set(list(pub.disabledBonds)),
+    disabled: off,
+    drawn,
     banned: new Set(list(pub.bannedChess)),
   };
 }
@@ -369,7 +388,7 @@ function matchOf(state) {
  * @param {string[]} ids
  */
 export function guideSections(state, data, ids = []) {
-  const { pub, room, disabled, banned } = matchOf(state);
+  const { pub, room, disabled, drawn, banned } = matchOf(state, data);
   let chapters = null;
   const sections = [];
   const unknown = [];
@@ -377,10 +396,10 @@ export function guideSections(state, data, ids = []) {
     const [kind, ...rest] = id.split('.');
     const key = rest.join('.');
     let section = null;
-    if (kind === 'tutorial') section = (chapters ??= chapterSections(data, pub, room)).find((s) => s.id === id) ?? null;
+    if (kind === 'tutorial' || kind === 'method') section = (chapters ??= chapterSections(data, pub, room)).find((s) => s.id === id) ?? null;
     else if (kind === 'bond' && !disabled.has(key)) section = bondSection(data, key, banned);
     else if (kind === 'band') section = bandSection(data, key, disabled);
-    else if (id === 'bonds.overview') section = bondOverview(data, disabled);
+    else if (id === 'bonds.overview') section = bondOverview(data, disabled, drawn);
     else if (id === 'bonds.generic') section = genericSection(data, banned);
     else if (id === 'emotes') section = emotesSection();
     if (section) sections.push(section);
@@ -396,7 +415,7 @@ export function guideSections(state, data, ids = []) {
  * @param {'auto'|'tutorial'|'bonds'|'bands'} [topic]
  */
 export function guideIndex(state, data, topic = 'auto') {
-  const { pub, priv, room, disabled } = matchOf(state);
+  const { pub, priv, room, disabled } = matchOf(state, data);
   const pages = [];
   const add = (id, title) => { if (!pages.some((p) => p.id === id)) pages.push({ id, title }); };
   const bond = (bondId) => { const b = data.bonds?.[bondId]; if (isObject(b) && !disabled.has(bondId)) add(`bond.${bondId}`, `盟约：${b.name ?? bondId}`); };

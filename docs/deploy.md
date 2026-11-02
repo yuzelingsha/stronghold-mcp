@@ -76,8 +76,8 @@ location /mcp {
 
 ## 4. 运行设置
 
-- **工具模式**：默认 `compact`（9 个工具）。远程客户端依赖 `stronghold_g_buy` 这类按动作的工具时，加
-  `Environment=STRONGHOLD_MCP_TOOLS=full`（62 个）。一个部署固定用一种模式，工具定义才能保持逐字节稳定（见 [prompting.md](prompting.md)）。
+- **工具模式**：默认 `compact`（10 个工具）。远程客户端依赖 `stronghold_g_buy` 这类按动作的工具时，加
+  `Environment=STRONGHOLD_MCP_TOOLS=full`（63 个）。一个部署固定用一种模式，工具定义才能保持逐字节稳定（见 [prompting.md](prompting.md)）。
 - **战斗运行器**：`STRONGHOLD_LOCAL_BATTLE=1` 时，这个服务替它的座位跑战斗模拟（模拟从游戏插件或本机安装取得，见 README「战斗模拟从哪来」）。
   未设置时，座位收到的 `b.start` 由其他客户端或服务端接管。
 - **攻击范围**：游戏和 MCP 在同一台服务器时，加 `Environment=STRONGHOLD_SIM_ROOT=/srv/apps/<game-dir>`。`range` 和 `range_tiles` 这样就用游戏自己的规则计算，这个设置本身不开启战斗运行器。
@@ -116,7 +116,7 @@ location /mcp {
    - 不带凭据请求 `/mcp`，返回 401。
    - 带凭据完成一次会话：
      - `initialize` 的 `instructions` 哈希与本地一致；
-     - `tools/list` 有 9 个工具；
+     - `tools/list` 有 10 个工具；
      - `stronghold_guide` 返回目录，`ids:["tutorial.shop"]` 返回带本服务器收入数字的段落（这一步同时验证了站点登录和 `/data/config.json`）；
      - 最后 `DELETE` 关闭会话。
 

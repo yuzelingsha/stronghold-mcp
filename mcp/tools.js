@@ -11,6 +11,7 @@ import { z } from 'zod';
 
 import { gameDataSource, lookup } from './gamedata.js';
 import { createGuide } from './guide.js';
+import { reviewMatch } from './review.js';
 import { createObservationLog } from './observe-log.js';
 import { observation } from './observation.js';
 import { ACTIONS, ACTION_TYPES, actionCatalog, toolNameFor } from './protocol.js';
@@ -38,6 +39,15 @@ function result(value, isError = false) {
 async function runSafe(fn) {
   try { return result(await fn()); }
   catch (error) { return result({ ok: false, error: error instanceof Error ? error.message : String(error) }, true); }
+}
+
+/** A ready player can still take it back: funds left over are worth saying before the prep ends. */
+function withFundsNote(reply, client, data) {
+  const priv = client.snapshot(false)?.last?.['m.private'] ?? {};
+  const funds = Number(priv.funds) || 0;
+  const kept = data.config?.economy?.leftoverFundsKeptByBands;
+  if (funds <= 0 || (Array.isArray(kept) && kept.includes(priv.bandId))) return reply;
+  return { ...reply, funds_left: funds, note: `资金 ${funds} 在休整期结束时清零。g.ready 传 ready:false 可以撤回就绪，用完再就绪。` };
 }
 
 /**
@@ -82,12 +92,18 @@ export function registerTools(server, client, { env = process.env, gameData = ga
   const guide = createGuide();
   server.registerTool('stronghold_guide', {
     title: 'Read the game tutorial',
-    description: 'Read the game tutorial and this match\'s reference pages on demand. ids returns those sections: tutorial chapters (tutorial.flow, tutorial.board, tutorial.shop, tutorial.pieces, tutorial.bonds, tutorial.battle, tutorial.lp, tutorial.draft) with this server\'s numbers, bonds.overview, bond.<bondId> (thresholds, description, params, the operators whose traits stack it, the operators whose stats grow with it), bonds.generic and band.<bandId>. Without ids it returns a table of contents (id and title, read:true once fetched): topic "auto" (default) lists the pages for the current phase, "tutorial", "bonds" and "bands" list a whole area.',
+    description: 'Read the game tutorial and this match\'s reference pages on demand. ids returns those sections: tutorial chapters (tutorial.flow, tutorial.board, tutorial.shop, tutorial.pieces, tutorial.bonds, tutorial.battle, tutorial.enemies, tutorial.lp, tutorial.sp, tutorial.draft) with this server\'s numbers, how to decide (method.round, method.build, method.place, method.review), bonds.overview, bond.<bondId> (thresholds, description, params, the operators whose traits stack it, the operators whose stats grow with it), bonds.generic and band.<bandId>. Without ids it returns a table of contents (id and title, read:true once fetched): topic "auto" (default) lists the pages for the current phase, "tutorial", "bonds" and "bands" list a whole area.',
     inputSchema: z.object({
       topic: z.enum(['auto', 'tutorial', 'bands', 'bonds']).optional(),
       ids: z.array(z.string()).optional(),
     }),
   }, async ({ topic, ids } = {}) => runSafe(async () => guide(client.snapshot(false), await gameData(), { topic, ids: ids ?? [] })));
+
+  server.registerTool('stronghold_review', {
+    title: 'Review this match',
+    description: 'Numbers for reviewing the latest match, during it or after the settlement: every round\'s level, line-up, bonds, LP lost and leaks, the rounds that cost the most, every seat\'s result, and the gaps to the built-in AI\'s reference curve (findings).',
+    inputSchema: z.object({}),
+  }, async () => runSafe(async () => reviewMatch(client.matchLog, await gameData())));
 
   server.registerTool('stronghold_state', {
     title: 'Read Stronghold state',
@@ -116,7 +132,10 @@ export function registerTools(server, client, { env = process.env, gameData = ga
       waitForReply: z.boolean().optional(),
       timeoutMs: z.number().int().min(100).max(120000).optional(),
     }),
-  }, async ({ type, fields, waitForReply, timeoutMs }) => runSafe(() => client.action(type, fields || {}, { waitForReply, timeoutMs })));
+  }, async ({ type, fields, waitForReply, timeoutMs }) => runSafe(async () => {
+    const reply = await client.action(type, fields || {}, { waitForReply, timeoutMs });
+    return type === 'g.ready' && fields?.ready !== false ? withFundsNote(reply, client, await gameData().catch(() => ({}))) : reply;
+  }));
 
   if (toolMode(env) === 'full') {
     // One convenience tool per protocol action, so an agent can call stronghold_g_buy directly.

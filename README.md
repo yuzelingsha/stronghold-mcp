@@ -202,14 +202,15 @@ Environment=SP_PLUGIN_SCRIPTS=trusted
 | 工具 | 作用 |
 |---|---|
 | `stronghold_observe` | **决策用的局面快照**（见下文 observation），agent 每回合读这个；带 `since` 只返回变化 |
+| `stronghold_review` | 本局的数字摘要：每回合的等级、阵容、盟约、掉血和漏怪，掉血最多的回合，全队结算，与内置 AI 参考曲线的差距 |
 | `stronghold_lookup` | 按 id 查一条游戏数据：干员、装备、敌人、召唤物、策略，或盟约（含阈值与成员） |
 | `stronghold_guide` | 游戏教程（数字取自本服务器配置）与本局盟约、策略的参考页（见下文） |
 | `stronghold_action` / `stronghold_protocol` | 发任意协议动作 / 列出全部动作与字段 |
 | `stronghold_connect` / `stronghold_disconnect` / `stronghold_state` / `stronghold_wait_event` | 会话、原始帧、等事件 |
 
-默认使用 `STRONGHOLD_MCP_TOOLS=compact`，只注册上面 9 个通用工具，减少工具定义占用的上下文。
+默认使用 `STRONGHOLD_MCP_TOOLS=compact`，只注册上面 10 个通用工具，减少工具定义占用的上下文。
 所有动作通过 `stronghold_action` 发出。需要 `stronghold_g_buy`、`stronghold_room_create` 等便利工具时，
-设 `STRONGHOLD_MCP_TOOLS=full`，共注册 62 个工具。
+设 `STRONGHOLD_MCP_TOOLS=full`，共注册 63 个工具。
 `stronghold_protocol {"type":"g.move"}` 或 `{"prefix":"room."}` 可以只取需要的动作说明。
 
 也可以跑成 Streamable HTTP（`MCP_TRANSPORT=http`，入口 `/mcp`，默认 `127.0.0.1:8787`，
@@ -450,7 +451,7 @@ MCP 和 driver 启动时会读仓库根目录的 `.env`；**已经在环境里�
 | `STRONGHOLD_SIM_AUTODISCOVER` | 空 | `1` = 允许从工作目录向上找安装（默认关闭，避免静默掩盖远程来源） |
 | `STRONGHOLD_SIM_CACHE` | `~/.cache/stronghold-mcp` | 模拟缓存目录 |
 | `STRONGHOLD_BATTLE_MODE` | `auto` | `auto` / `fast` / `realtime` |
-| `STRONGHOLD_MCP_TOOLS` | `compact` | 默认 9 个通用工具；`full` 额外注册每个动作的便利工具，共 62 个 |
+| `STRONGHOLD_MCP_TOOLS` | `compact` | 默认 10 个通用工具；`full` 额外注册每个动作的便利工具，共 63 个 |
 | `STRONGHOLD_DATA_DIR` | 空 | 本机游戏的 `data/` 目录；不设则从服务器 `/data/` 取 observation 用的数据 |
 | `STRONGHOLD_FIELD_REGION` | `9,12,2,10` | 本座位半场的 `r0,r1,c0,c1`，默认即游戏 `GEO.FIELD` |
 | `STRONGHOLD_RECORD_DIR` | 空 | 每局一个 `.jsonl` 写到这个目录，供赛后复盘（见 [docs/prompting.md](docs/prompting.md)）；空 = 不记录 |
