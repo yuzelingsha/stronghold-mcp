@@ -138,7 +138,14 @@ describe('checks', () => {
 
   it('sizes up the wave with the multipliers, the leader apart', () => {
     const lines = checks(state({ priv: { nextEnemies: [{ enemyKey: 'bug', count: 2 }, { enemyKey: 'leader', count: 1, boss: true }] } }));
-    has(lines, '本回合敌人 3 只，总生命约 8600，领袖另计（生命×4.3，攻击×1.61，移速×1.15）');
+    has(lines, '本回合敌人 3 只，总生命约 8600，领袖另计（生命×4.3，攻击×1.61，移速×1.15）；防御最高 10（源石虫）');
+  });
+
+  it('sets last round\'s output beside its damage types', () => {
+    const report = { units: [{ uid: 1, dmg: 300 }, { uid: 2, dmg: 100 }], damage_types: { phys: 396, arts: 4, true: 0, elemental: 0 } };
+    const s = state();
+    s.battleSimulation = { mode: 'auto', ready: true, lastResult: { round: 2, report } };
+    has(checks(s), '上回合总输出 400（物理 99%、法术 1%）');
   });
 
   it('flags layers lying idle in an inactive bond', () => {

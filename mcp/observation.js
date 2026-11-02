@@ -731,10 +731,22 @@ export function prepChecks(obs, data, pub) {
     const hp = wave.filter((e) => !e.boss).reduce((sum, e) => sum + (Number(e.count) || 0) * (e.hp_now ?? e.hp ?? 0), 0);
     const factors = scale ? `（生命×${multiplier(scale.hp)}，攻击×${multiplier(scale.atk)}，移速×${multiplier(scale.speed)}）` : '';
     const leader = wave.some((e) => e.boss) ? '，领袖另计' : '';
-    lines.push(`本回合敌人 ${total} 只，总生命约 ${hp}${leader}${factors}`);
+    const top = (key) => wave.filter((e) => !e.boss && Number(e[key]) > 0).sort((x, y) => Number(y[key]) - Number(x[key]))[0];
+    const def = top('def');
+    const res = top('res');
+    const armour = [def ? `防御最高 ${def.def}（${def.name ?? def.key}）` : '', res ? `法抗最高 ${res.res}（${res.name ?? res.key}）` : ''].filter(Boolean).join('，');
+    lines.push(`本回合敌人 ${total} 只，总生命约 ${hp}${leader}${factors}${armour ? `；${armour}` : ''}`);
   }
   const dealt = list(obs.battle?.report?.units).reduce((sum, unit) => sum + (Number(unit.dmg) || 0), 0);
-  if (dealt > 0) lines.push(`上回合总输出 ${dealt}`);
+  if (dealt > 0) {
+    // The share of each damage type: physical damage is atk − def, so it is what a high-defence wave stops.
+    const types = obj(obs.battle?.report?.damage_types);
+    const typed = Object.values(types).reduce((sum, v) => sum + (Number(v) || 0), 0);
+    const names = { phys: '物理', arts: '法术', true: '真实', elemental: '元素' };
+    const split = typed > 0 ? Object.entries(names).filter(([key]) => Number(types[key]) > 0)
+      .map(([key, name]) => `${name} ${Math.round((Number(types[key]) * 100) / typed)}%`).join('、') : '';
+    lines.push(`上回合总输出 ${dealt}${split ? `（${split}）` : ''}`);
+  }
   if (obs.reward_offer) lines.push('晋升奖励待领取');
   const funds = Number(obs.me.funds) || 0;
   const keeps = list(data.config?.economy?.leftoverFundsKeptByBands).includes(obs.me.band);
@@ -979,6 +991,25 @@ export function observation(state, data = {}, { env = process.env, detail = 'ful
     field: field(data, pub.stageId, fieldRegion(env)),
   };
   if (scale) obs.enemy_scale = scale;
+  // The battle section goes in before checks: they read the last battle's report (上回合总输出).
+  const battle = state?.battleSimulation;
+  if (battle) {
+    // The runner's status is a property of the session, not of this round: after a match ends (or the
+    // seat leaves), `current` still describes the last battle it ran. A prep phase normally follows the
+    // previous round's battle, so only a round that is neither this one nor the one before is flagged.
+    const current = battle.current;
+    const round = Number(pub.round);
+    const stale = isObject(current) && current.round != null && current.round !== round && current.round !== round - 1;
+    // The report is carried once, as `battle.report`; `lastResult` keeps the summary only. Copies, so the
+    // runner's shared status is never mutated.
+    const { report: _nested, ...summary } = obj(battle.lastResult);
+    obs.battle = {
+      ...battle,
+      lastResult: battle.lastResult ? summary : null,
+      report: battle.lastResult?.report || battle.report || null,
+      ...(stale ? { stale: true, stale_reason: `battle.current.round=${current.round} but the match is at round ${pub.round ?? null}` } : {}),
+    };
+  }
   if (pub.phase === 'PREP') obs.checks = prepChecks(obs, data, pub);
   const comms = commsView(pub, state?.messages, state?.lastEmote, myId);
   if (comms) obs.comms = comms;
@@ -1001,25 +1032,7 @@ export function observation(state, data = {}, { env = process.env, detail = 'ful
   if (pub.phase === 'BAND_DRAFT') obs.band_draft = bandDraft(data, pub, room, priv.playerId);
   if (pub.phase === 'SP_DRAFT' && isObject(pub.sp)) obs.sp_draft = spDraft(pub, priv.playerId, data, scale);
 
-  const battle = state?.battleSimulation;
-  if (battle) {
-    // The runner's status is a property of the session, not of this round: after a match ends (or the
-    // seat leaves), `current` still describes the last battle it ran. A prep phase normally follows the
-    // previous round's battle, so only a round that is neither this one nor the one before is flagged.
-    const current = battle.current;
-    const round = Number(pub.round);
-    const stale = isObject(current) && current.round != null && current.round !== round && current.round !== round - 1;
-    // The report is carried once, as `battle.report`; `lastResult` keeps the summary only. Copies, so the
-    // runner's shared status is never mutated.
-    const { report: _nested, ...summary } = obj(battle.lastResult);
-    obs.battle = {
-      ...battle,
-      lastResult: battle.lastResult ? summary : null,
-      report: battle.lastResult?.report || battle.report || null,
-      ...(stale ? { stale: true, stale_reason: `battle.current.round=${current.round} but the match is at round ${pub.round ?? null}` } : {}),
-    };
-    if (!includeReport) delete obs.battle.report;
-  }
+  if (obs.battle && !includeReport) delete obs.battle.report;
   if (!includeField) delete obs.field;
   return detail === 'compact' ? compactObservation(obs, data, rangeOf) : obs;
 }
